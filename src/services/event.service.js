@@ -1,4 +1,6 @@
 const db = require('../config/db');
+const redisClient = require('../config/redis');
+
 
 const registerVehicle = async (vehicleData) => {
   const { 
@@ -19,7 +21,11 @@ const registerVehicle = async (vehicleData) => {
     VALUES ($1, $2, $3, $4, $5, $6, NOW())
     ON CONFLICT (vehicle_id) 
     DO UPDATE SET 
+      model = EXCLUDED.model,
+      color = EXCLUDED.color,
       battery_voltage = EXCLUDED.battery_voltage,
+      battery_capacity = EXCLUDED.battery_capacity,
+      max_range = EXCLUDED.max_range,
       last_online = NOW()
     RETURNING *;
   `;
@@ -27,7 +33,15 @@ const registerVehicle = async (vehicleData) => {
   const values = [vehicle_id, model, color, battery_voltage, battery_capacity, max_range];
   const result = await db.query(queryText, values);
   
-console.log(`Vehicle ${vehicle_id} connected and saved to DB`);
+
+  // luu trang thai online cua xe vao redis 
+  const redisKey = `vehicle:stream:${vehicle_id}`;
+  await redisClient.hSet(redisKey, {
+    status: 'online',
+    model : model,
+    last_updated: new Date().toISOString()
+  });
+  console.log(`Vehicle ${vehicle_id} connected and status set to online in Redis.`);
   return result.rows[0];
 };
 
