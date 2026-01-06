@@ -12,7 +12,7 @@ const pool = new Pool({
 
 // Kiểm tra kết nối
 pool.on('connect', () => {
-  console.log('✅ Connected to PostgreSQL');
+  console.log('Connected to PostgreSQL');
 });
 
 module.exports = {
