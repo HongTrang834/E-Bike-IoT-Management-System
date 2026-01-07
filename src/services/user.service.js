@@ -24,6 +24,7 @@ const signup = async (userData) => {
   return result.rows[0];
 };
 
+
 const login = async (user_name, password) => {
   const result = await db.query('SELECT * FROM accounts WHERE user_name = $1', [user_name]);
   
@@ -43,9 +44,12 @@ const login = async (user_name, password) => {
     throw error;
   }
 
+ // tam thoi hardcode token, sau nay se doi sang JWT hoac OAuth 
   const accessToken = `access_v1_${Date.now()}`;
   const refreshToken = `refresh_v1_${Date.now()}`;
   const expiresIn = 3600; // 1 giờ
+// nen set expire time cho refresh dài hơn access token. 
+
 
   // Lưu vào Redis
   await redisClient.setEx(`session:${accessToken}`, expiresIn, user.user_name);
