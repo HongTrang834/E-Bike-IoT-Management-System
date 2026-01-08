@@ -34,14 +34,12 @@ const registerVehicle = async (vehicleData) => {
   const result = await db.query(queryText, values);
   
 
-  // luu trang thai online cua xe vao redis 
+  // Create stream vehicle data  redis with vehicle_id 
   const redisKey = `vehicle:stream:${vehicle_id}`;
   await redisClient.hSet(redisKey, {
-    status: 'online',
-    model : model,
-    last_updated: new Date().toISOString()
+    "vehicle_id" : vehicle_id,
   });
-  console.log(`Vehicle ${vehicle_id} connected and status set to online in Redis.`);
+  console.log(`Vehicle ${vehicle_id} connected and save in Redis.`);
   return result.rows[0];
 };
 
