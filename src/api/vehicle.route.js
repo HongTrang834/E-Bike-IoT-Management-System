@@ -1,7 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const eventService = require('../services/event.service');
+// dashboard 
+const vehicleController = require('../controllers/vehicle.controller');
 
+// vehicle connection 
 router.post('/connect', async (req, res) => {
     try {
         const result = await eventService.registerVehicle(req.body);
@@ -10,5 +13,8 @@ router.post('/connect', async (req, res) => {
         res.status(error.statusCode || 500).send(error.message);
     }
 });
+
+
+router.get('/dashboard', vehicleController.getFleetDashboard);
 
 module.exports = router;

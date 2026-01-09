@@ -1,16 +1,20 @@
 const express = require('express');
 require('dotenv').config();
 
+
 const vehicleRoutes = require('./api/vehicle.route');
 const userRoutes = require('./api/user.route');
 const mqttClient = require('./config/mqtt');
 const mqttService = require('./services/mqtt.service');
+const cors = require('cors');
 
 // tạo object app 
 const app = express();
 
 // đọc dữ liệu json 
 app.use(express.json());
+
+app.use(cors());
 
 app.use('/api/user', userRoutes);
 app.use('/api/vehicle', vehicleRoutes);

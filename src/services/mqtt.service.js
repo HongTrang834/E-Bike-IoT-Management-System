@@ -15,16 +15,16 @@ const handleMqttMessage = async (topic, message) => {
         // 1. Giải mã Telemetry (23 bytes tổng cộng)
         if (dataType === "telemetry") {
             decodedData = {
-                speed: buffer.readUInt16BE(0),            // 2 bytes
-                odo: buffer.readUInt32BE(2),              // 4 bytes
-                trip: buffer.readUInt32BE(6),             // 4 bytes
-                range_left: buffer.readUInt16BE(10),      // 2 bytes
-                voltage: buffer.readUInt16BE(12),         // 2 bytes
-                current: buffer.readInt16BE(14),          // 2 bytes
-                soc: buffer.readUInt16BE(16),             // 2 bytes
-                temperature: buffer.readInt16BE(18),      // 2 bytes
-                tilt_angle: buffer.readInt16BE(20),       // 2 bytes
-                hill_assistance: buffer.readUInt8(22)     // 1 byte
+                speed: buffer.readUInt16LE(0),          // H - 2 bytes
+                odo: buffer.readUInt32LE(2),            // L - 4 bytes
+                trip: buffer.readUInt32LE(6),           // L - 4 bytes
+                range_left: buffer.readUInt16LE(10),    // H - 2 bytes
+                voltage: buffer.readUInt16LE(12),       // H - 2 bytes
+                current: buffer.readInt16LE(14),        // h - 2 bytes
+                soc: buffer.readUInt16LE(16),           // H - 2 bytes
+                temperature: buffer.readInt16LE(18),    // h - 2 bytes
+                tilt_angle: buffer.readInt16LE(20),     // h - 2 bytes
+                hill_assistance: buffer.readUInt8(22)   // B - 1 byte
             };
             console.log(`[Telemetry] Decoded for ${vehicleId}:`, decodedData);
         }
@@ -32,8 +32,8 @@ const handleMqttMessage = async (topic, message) => {
         // 2. Giải mã Status (15 bytes tổng cộng)
         else if (dataType === "status") {
             decodedData = {
-                mode: buffer.readUInt16BE(0),             // 2 bytes
-                locked: buffer.readUInt8(2) === 1,        // 1 byte -> boolean
+                mode: buffer.readUInt16LE(0),           // 2 bytes LE
+                locked: buffer.readUInt8(2) === 1,
                 trunk_locked: buffer.readUInt8(3) === 1,
                 horn: buffer.readUInt8(4) === 1,
                 answareback: buffer.readUInt8(5) === 1,
@@ -52,9 +52,9 @@ const handleMqttMessage = async (topic, message) => {
 
         // 3. Giải mã Location (10 bytes tổng cộng)
         else if (dataType === "location") {
-            const lat = buffer.readInt32BE(0) / 10000000; // 4 bytes
-            const lon = buffer.readInt32BE(4) / 10000000; // 4 bytes
-            const heading = buffer.readUInt16BE(8);       // 2 bytes
+            const lat = buffer.readInt32LE(0) / 10000000; // l - 4 bytes
+            const lon = buffer.readInt32LE(4) / 10000000; // l - 4 bytes
+            const heading = buffer.readUInt16LE(8);       // H - 2 bytes
 
             const redisKey = `vehicle:last_location:${vehicleId}`;
             const lastLoc = await redisClient.hGetAll(redisKey);
@@ -75,9 +75,10 @@ const handleMqttMessage = async (topic, message) => {
 
         // 4. Giải mã Event (16 bytes tổng cộng)
         else if (dataType === "event") {
-            const eventId = buffer.readUInt32BE(0);    // 4 bytes đầu là name 
-            const typeId = buffer.readUInt16BE(4);     // 2 bytes tiếp là type
-            // value 10 byte: Đọc dưới dạng chuỗi ký tự
+
+            if (buffer.length < 16) return;
+            const eventId = buffer.readUInt32LE(0);    // I - 4 bytes
+            const typeId = buffer.readUInt16LE(4);     // H - 2 bytes
             const value = buffer.toString('utf8', 6, 16).replace(/\0/g, '');
             
             // Ánh xạ tên sự kiện dùng cho App

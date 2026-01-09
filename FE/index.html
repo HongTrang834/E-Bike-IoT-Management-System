@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fleet Monitoring Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        #map {
+            height: 600px;
+            width: 100%;
+            border-radius: 8px;
+        }
+
+        .vehicle-card {
+            transition: all 0.3s;
+        }
+
+        .vehicle-card:hover {
+            transform: scale(1.02);
+        }
+    </style>
+</head>
+
+<body class="bg-gray-900 text-white p-5">
+    <div class="max-w-7xl mx-auto">
+        <header class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-bold text-blue-400">Fleet Real-time Dashboard</h1>
+            <div id="status" class="bg-green-600 px-4 py-1 rounded-full text-sm">Hệ thống ổn định</div>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <div class="lg:col-span-1 space-y-4 overflow-y-auto" style="max-height: 600px;" id="vehicle-list">
+                <p class="text-gray-400 italic">Đang tải dữ liệu...</p>
+            </div>
+
+            <div class="lg:col-span-3">
+                <div id="map"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Khởi tạo bản đồ (Tâm tại Việt Nam)
+        const map = L.map('map').setView([10.762622, 106.660172], 13);
+        const bikeIcon = L.icon({
+            iconUrl: './e-bike_9214572.png', // Dùng đường dẫn tương đối
+            iconSize: [40, 40],            // Chỉnh kích thước cho vừa mắt
+            iconAnchor: [20, 20],          // Tâm icon (thường là 1/2 size)
+            popupAnchor: [0, -20]
+        });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+        // 1. KHAI BÁO NGOÀI HÀM (Quan trọng nhất)
+        let markers = {};
+
+        async function updateDashboard() {
+            try {
+                const response = await fetch('http://localhost:3000/api/vehicle/dashboard');
+                const result = await response.json();
+                if (!result.success) return;
+
+                const fleet = result.data; // Đây là mảng chứa 5 xe
+
+                // 2. Cập nhật danh sách chữ bên trái (Sidebar)
+                const listContainer = document.getElementById('vehicle-list');
+                listContainer.innerHTML = '';
+
+                fleet.forEach(vehicle => {
+                    // Render Sidebar Card
+                    listContainer.innerHTML += `
+                <div class="bg-gray-800 p-3 mb-2 rounded shadow border-l-4 border-green-500">
+                    <b>Xe ${vehicle.vehicle_id}</b> - ${vehicle.speed} km/h
+                </div>`;
+
+                    // 3. XỬ LÝ MARKER TRÊN BẢN ĐỒ
+                    const { lat, lon } = vehicle.location;
+                    const vid = vehicle.vehicle_id;
+
+                    if (lat && lon && lat !== 0) {
+                        if (markers[vid]) {
+                            // Nếu xe đã có marker, chỉ cập nhật vị trí (Không tạo mới)
+                            markers[vid].setLatLng([lat, lon]);
+                        } else {
+                            // Nếu xe chưa có (xe mới xuất hiện), tạo marker và lưu vào Object markers
+                            markers[vid] = L.marker([lat, lon], { icon: bikeIcon })
+                                .addTo(map)
+                                .bindPopup(`Xe ${vid}`);
+                        }
+                    }
+                });
+
+            } catch (err) {
+                console.error("Lỗi cập nhật:", err);
+            }
+        }
+
+
+        // Cập nhật mỗi 2 giây
+        setInterval(updateDashboard, 2000);
+        updateDashboard();
+    </script>
+</body>
+
+</html>
