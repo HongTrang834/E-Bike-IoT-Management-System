@@ -14,7 +14,17 @@ router.post('/connect', async (req, res) => {
     }
 });
 
-
+// quản lý xe đang chạy 
 router.get('/dashboard', vehicleController.getFleetDashboard);
 
+
+// trước khi làm websocket thì test tạm api này để gửi lệnh điều khiển xuống xe
+router.post('/test-cmd', async (req, res) => {
+    const { vehicle_id, type, value } = req.body;
+    const mqttClient = require('../config/mqtt');
+    const mqttService = require('../services/mqtt.service');
+    
+    await mqttService.sendCommand(mqttClient, vehicle_id, type, value);
+    res.json({ success: true, message: "Lệnh đã được gửi" });
+});
 module.exports = router;

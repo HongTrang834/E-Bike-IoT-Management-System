@@ -38,20 +38,39 @@ def on_connect(client, userdata, flags, rc):
 def on_message(client, userdata, msg):
     try:
         topic = msg.topic
-        payload = json.loads(msg.payload.decode())
+        payload = msg.payload
 
         # topic format: bike/{vehicle_id}/cmd
         _, vehicle_id, _ = topic.split("/")
 
         print(f"📥 CMD received for vehicle {vehicle_id}: {payload}")
-
         # Handle data
-        field = payload.get("type")
-        value = payload.get("data")
+        field = int.from_bytes(payload[0:2], byteorder='little', signed=False)
+        FIELD_MAP = {
+            1: "locked",
+            2: "trunk_locked",
+            3: "horn",
+            4: "answareback",
+            5: "headlight",
+            6: "rear_light",
+            7: "turn_light",
+            8: "push_notify",
+            9: "batt_alerts",
+            10: "security_alerts",
+            11: "auto_lock",
+            12: "bluetooth_unlock",
+            13: "remote_access",
+        }
+        key = FIELD_MAP.get(field)
+        if key is None:
+            print("⚠ Unknown field:", field)
+            return
+        value = int.from_bytes(payload[2:4], byteorder='little', signed=False)
         vehicle_key = f"id_{vehicle_id}"
+        print(f"📥 Decode: {key}: {value}")
         # print(vehicle_status[vehicle_key])
         # print(field, value)
-        vehicle_status[vehicle_key][field] = value
+        vehicle_status[vehicle_key][key] = value
         vehicle_status[vehicle_key]["mode"] = random.randint(0, 2)
         status_trans = {}
         KEY_MAP = {
@@ -281,12 +300,10 @@ try:
                 qos = 2 if element == "event" else 0
                 topic = f"{BASE_TOPIC}/{vehicle_id}/{element}"
                 
-                # Chuyển đổi sang bytearray (theo hàm Cách A tôi đã hướng dẫn)
                 element_data = to_bytearray(payload)
                 
                 client.publish(topic, element_data, qos=qos)
             
-            # (Tùy chọn) print(f"🚀 Sent data for vehicle {vehicle_id}")
 
         time.sleep(1) # Nghỉ 1 giây sau khi đã gửi cho toàn bộ danh sách xe
         

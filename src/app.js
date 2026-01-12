@@ -20,8 +20,8 @@ app.use('/api/user', userRoutes);
 app.use('/api/vehicle', vehicleRoutes);
 
 // for test only 
-const simulator = require('./test/controller/simulator');
-app.get('/test/simulate/control/:vehicleId', simulator.simulateUserControl);
+// const simulator = require('./test/controller/Simulation_mqtt')
+// app.get('/test/simulate/control/:vehicleId', simulator.simulateUserControl);
 
 mqttClient.on('message', (topic, message) => {
     mqttService.handleMqttMessage(topic, message);

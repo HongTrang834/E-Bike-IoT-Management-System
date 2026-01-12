@@ -31,6 +31,7 @@ const handleMqttMessage = async (topic, message) => {
 
         // 2. Giải mã Status (15 bytes tổng cộng)
         else if (dataType === "status") {
+            console.log(`[STEP 2] Server nhận được STATUS phản hồi từ xe ${vehicleId}!`);
             decodedData = {
                 mode: buffer.readUInt16LE(0),           // 2 bytes LE
                 locked: buffer.readUInt8(2) === 1,
@@ -128,20 +129,22 @@ const handleMqttMessage = async (topic, message) => {
 };
 
 /**
- * Gửi lệnh điều khiển xuống xe (QoS 2)
+ * Gửi lệnh điều khiển xuống xe (QoS 2) để xe gửi lại status
  */
-const sendCommand = async (mqttClient, vehicleId, type, value) => {
+const sendCommand = async (mqttClient, vehicleId, type, data) => {
     const topic = `bike/${vehicleId}/cmd`;
-    const payload = JSON.stringify({ type, data: value });
 
-    mqttClient.publish(topic, payload, { qos: 2 });
+    const buffer = Buffer.alloc(4);
+    buffer.writeInt16LE(type, 0);    // H - 2 bytes
+    buffer.writeInt16LE(data, 2);   // H - 2 bytes
+    mqttClient.publish(topic, buffer, { qos: 2 });
 
     const redisKey = `vehicle:stream:${vehicleId}`;
     await redisClient.hSet(redisKey, {
         "vehicle_id": vehicleId,
-        "cmd": payload
+        "cmd": JSON.stringify({ type, data: data})   
     });
-    console.log(`[Command] Sent to ${vehicleId}: ${type}`);
+    console.log(`[Command] Sent Binary to ${vehicleId}: Type ${type}, Data ${data}`);
 };
 
 module.exports = { handleMqttMessage, sendCommand };
