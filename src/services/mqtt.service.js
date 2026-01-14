@@ -115,13 +115,32 @@ const handleMqttMessage = async (topic, message) => {
         }
 
         // LƯU VÀO REDIS CHO TELEMETRY/STATUS/CMD (Stream Data)
-        if (Object.keys(decodedData).length > 0) {
-            const redisStreamKey = `vehicle:stream:${vehicleId}`;
-            await redisClient.hSet(redisStreamKey, {
-                "vehicle_id": vehicleId,
-                [dataType]: JSON.stringify(decodedData)
-            });
+if (Object.keys(decodedData).length > 0) {
+    const redisStreamKey = `vehicle:stream:${vehicleId}`;
+    await redisClient.hSet(redisStreamKey, {
+        "vehicle_id": vehicleId,
+        [dataType]: JSON.stringify(decodedData)
+    });
+
+    // PUSH DATA TO WEBSOCKET 
+    if (global.activeSockets && global.activeSockets.size > 0) {
+        const messagePayload = JSON.stringify({
+            type: dataType, // telemetry, status, hoặc location
+            data: decodedData
+        });
+
+        // Lặp qua các socket đang active để tìm user sở hữu xe này
+        for (let [email, ws] of global.activeSockets) {
+            // Lấy vehicle_id mà user này quản lý từ Redis
+            const userVehicleId = await redisClient.hGet(`user:token:${email}`, 'vehicle_id');
+            
+            if (userVehicleId === vehicleId) {
+                ws.send(messagePayload); // Gửi Text frame (Opcode 0x1/81)
+                console.log(`[WS Push] Sent ${dataType} to ${email}`);
+            }
         }
+    }
+}
 
     } catch (error) {
         console.error('Error handling Binary MQTT message:', error.message);
