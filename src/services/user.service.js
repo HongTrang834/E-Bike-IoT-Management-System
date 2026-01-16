@@ -25,8 +25,17 @@ const signup = async (userData) => {
 };
 
 
-const login = async (user_name, password) => {
-  const result = await db.query('SELECT * FROM accounts WHERE user_name = $1', [user_name]);
+const login = async (user_name, password, ipAddress = '') => { // Sau này phát triển thêm sẽ thay ipAdd vào đây,  hiện tại là rỗng 
+  // 1. Lấy thông tin account và vehicle_id đang chọn (active) từ DB
+  // Lưu ý: Query này join với bảng user_vehicle_mapping để lấy xe đang được chọn
+  const query = `
+    SELECT a.*, uv.vehicle_id 
+    FROM accounts a
+    LEFT JOIN user_vehicle_mapping uv ON a.email = uv.email 
+    WHERE a.user_name = $1 
+    LIMIT 1`;
+  
+  const result = await db.query(query, [user_name]);
   
   if (result.rows.length === 0) {
     const error = new Error("Missing or invalid token"); 
@@ -36,7 +45,6 @@ const login = async (user_name, password) => {
 
   const user = result.rows[0];
 
-  // so sanh mat khau 
   const isMatch = await bcrypt.compare(password, user.password);
   if (!isMatch) {
     const error = new Error("Missing or invalid token");
@@ -44,15 +52,25 @@ const login = async (user_name, password) => {
     throw error;
   }
 
- // tam thoi hardcode token, sau nay se doi sang JWT hoac OAuth 
+  // 2. Tạo Token 
   const accessToken = `access_v1_${Date.now()}`;
   const refreshToken = `refresh_v1_${Date.now()}`;
-  const expiresIn = 3600; // 1 giờ
-// nen set expire time cho refresh dài hơn access token. 
+  const expiresIn = 3600; 
 
+  // 3. Lưu vào Redis theo cấu trúc Hash Set 
+  const sessionData = {
+    'email': user.email,
+    'vehicle_id': user.vehicle_id || '', 
+    'session': 'init',
+    'lasttime_pong': Date.now().toString(),
+    'token': accessToken,
+    'lasttime_token': Date.now().toString(),
+    'last_ip': ipAddress
+  };
 
-  // Lưu vào Redis
-  await redisClient.setEx(`session:${accessToken}`, expiresIn, user.user_name);
+  // Sử dụng accessToken làm key để sau này WebSocket dễ tra cứu
+  await redisClient.hSet(`user:token:${accessToken}`, sessionData);
+  await redisClient.expire(`user:token:${accessToken}`, expiresIn); 
 
   return {
     access_token: accessToken,
