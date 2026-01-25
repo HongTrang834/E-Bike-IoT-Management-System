@@ -81,33 +81,8 @@ const handleMqttMessage = async (topic, message) => {
             const eventId = buffer.readUInt32LE(0);    // I - 4 bytes
             const typeId = buffer.readUInt16LE(4);     // H - 2 bytes
             const value = buffer.toString('utf8', 6, 16).replace(/\0/g, '');
-            
-            // Ánh xạ tên sự kiện dùng cho App
-            /*
-            const names = {
-                0: 'None',
-                1: 'theft',
-                2: 'crash',
-                3: 'overtemp',
-                11: 'low_soc',
-                12: 'dtc',
-                21: 'lock_on',
-                22: 'lock_off',
-                23: 'trunk_lock',
-                24: 'horn',
-                25: 'vehicle_packed',
-                26: 'vehicle_stand',
-                27: 'vehicle_reverse'
-            };
-
-            const types = {
-                0: 'Info',
-                1: 'Warning',
-                2: 'Error'
-            };
-            */
-
-            //save to DB
+        
+// chỉ lưu khi name, value, type khác với giá trị trước đó?? 
             const query = 'INSERT INTO event_log (time, vehicle_id, name, type, value) VALUES (NOW(), $1, $2, $3, $4)';
             await db.query(query, [vehicleId, eventId, typeId, value]);
             console.log(`[Event] Logged for ${vehicleId}: ${eventId} (${typeId}) with value ${value}`);

@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Fleet Monitoring Dashboard</title>
+    <title>E-Bike Smart Management Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -12,96 +12,192 @@
         #map {
             height: 600px;
             width: 100%;
-            border-radius: 8px;
+            border-radius: 12px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
         }
 
-        .vehicle-card {
-            transition: all 0.3s;
+        .status-online {
+            color: #10b981;
         }
 
-        .vehicle-card:hover {
-            transform: scale(1.02);
+        .status-offline {
+            color: #ef4444;
+        }
+
+        .custom-marker {
+            transition: all 0.5s ease-in-out;
         }
     </style>
 </head>
 
-<body class="bg-gray-900 text-white p-5">
-    <div class="max-w-7xl mx-auto">
-        <header class="flex justify-between items-center mb-8">
-            <h1 class="text-3xl font-bold text-blue-400">Fleet Real-time Dashboard</h1>
-            <div id="status" class="bg-green-600 px-4 py-1 rounded-full text-sm">Hệ thống ổn định</div>
+<body class="bg-gray-900 text-white font-sans">
+    <div class="container mx-auto p-4 lg:p-8">
+        <header class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+            <div>
+                <h1 class="text-3xl font-extrabold text-blue-500 tracking-tight">E-BIKE SHARING SYSTEM</h1>
+                <p class="text-gray-400">Hệ thống quản lý và điều hành thời gian thực</p>
+            </div>
+            <div id="conn-status" class="bg-red-600 px-6 py-2 rounded-full text-sm font-bold shadow-lg animate-pulse">
+                ĐANG KẾT NỐI...
+            </div>
         </header>
 
-        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            <div class="lg:col-span-1 space-y-4 overflow-y-auto" style="max-height: 600px;" id="vehicle-list">
-                <p class="text-gray-400 italic">Đang tải dữ liệu...</p>
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            <div class="lg:col-span-1 space-y-6">
+                <div class="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow-2xl">
+                    <h2 class="text-xl font-bold mb-4 border-b border-gray-700 pb-2 text-blue-400">Thông tin xe</h2>
+                    <div id="vehicle-info" class="space-y-3">
+                        <p class="text-gray-400 italic">Vui lòng kết nối để xem dữ liệu...</p>
+                    </div>
+
+                    <div class="mt-8 pt-6 border-t border-gray-700">
+                        <h3 class="text-sm font-bold text-gray-500 uppercase mb-4">Điều khiển từ xa</h3>
+                        <div class="grid grid-cols-2 gap-3">
+                            <button onclick="sendCMD(1, 1)"
+                                class="bg-green-600 hover:bg-green-700 p-3 rounded-lg font-bold transition">KHÓA
+                                XE</button>
+                            <button onclick="sendCMD(1, 0)"
+                                class="bg-blue-600 hover:bg-blue-700 p-3 rounded-lg font-bold transition">MỞ
+                                KHÓA</button>
+                            <button onclick="sendCMD(3, 1)"
+                                class="bg-yellow-600 hover:bg-yellow-700 p-3 rounded-lg font-bold transition col-span-2">TÌM
+                                XE (CÒI)</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-black bg-opacity-50 p-4 rounded-xl h-40 overflow-y-auto text-xs font-mono border border-gray-800"
+                    id="logs">
+                    <div>[SYSTEM] Khởi tạo Dashboard...</div>
+                </div>
             </div>
 
-            <div class="lg:col-span-3">
+            <div class="lg:col-span-3 relative">
                 <div id="map"></div>
             </div>
         </div>
     </div>
 
     <script>
-        // Khởi tạo bản đồ (Tâm tại Việt Nam)
-        const map = L.map('map').setView([10.762622, 106.660172], 13);
+         // --- 1. CẤU HÌNH ---
+        const TOKEN = "access_v1_1768530446399";
+        const WS_URL = 'ws://localhost:3000/api/user/ws';
+
+        // --- 2. KHỞI TẠO BẢN ĐỒ ---
+        const map = L.map('map').setView([10.762622, 106.660172], 15);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap'
+        }).addTo(map);
+
         const bikeIcon = L.icon({
-            iconUrl: './e-bike_9214572.png', // Dùng đường dẫn tương đối
-            iconSize: [40, 40],            // Chỉnh kích thước cho vừa mắt
-            iconAnchor: [20, 20],          // Tâm icon (thường là 1/2 size)
-            popupAnchor: [0, -20]
+            iconUrl: 'https://cdn-icons-png.flaticon.com/512/9214/9214572.png', // Hoặc link file của bạn
+            iconSize: [45, 45],
+            iconAnchor: [22, 22]
         });
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-        // 1. KHAI BÁO NGOÀI HÀM (Quan trọng nhất)
         let markers = {};
+        let vehicleData = { telemetry: {}, status: {} };
 
-        async function updateDashboard() {
-            try {
-                const response = await fetch('http://localhost:3000/api/vehicle/dashboard');
-                const result = await response.json();
-                if (!result.success) return;
+        // --- 3. KẾT NỐI WEBSOCKET ---
+        const socket = new WebSocket(WS_URL, [TOKEN]);
 
-                const fleet = result.data; // Đây là mảng chứa 5 xe
+        socket.onopen = () => {
+            log("Kết nối Server thành công", "success");
+            const statusEl = document.getElementById('conn-status');
+            statusEl.innerText = "HỆ THỐNG TRỰC TUYẾN";
+            statusEl.className = "bg-green-600 px-6 py-2 rounded-full text-sm font-bold shadow-lg";
+        };
 
-                // 2. Cập nhật danh sách chữ bên trái (Sidebar)
-                const listContainer = document.getElementById('vehicle-list');
-                listContainer.innerHTML = '';
+        socket.onmessage = (event) => {
+            const msg = JSON.parse(event.data);
+            console.log("Nhận từ server:", msg);
 
-                fleet.forEach(vehicle => {
-                    // Render Sidebar Card
-                    listContainer.innerHTML += `
-                <div class="bg-gray-800 p-3 mb-2 rounded shadow border-l-4 border-green-500">
-                    <b>Xe ${vehicle.vehicle_id}</b> - ${vehicle.speed} km/h
-                </div>`;
-
-                    // 3. XỬ LÝ MARKER TRÊN BẢN ĐỒ
-                    const { lat, lon } = vehicle.location;
-                    const vid = vehicle.vehicle_id;
-
-                    if (lat && lon && lat !== 0) {
-                        if (markers[vid]) {
-                            // Nếu xe đã có marker, chỉ cập nhật vị trí (Không tạo mới)
-                            markers[vid].setLatLng([lat, lon]);
-                        } else {
-                            // Nếu xe chưa có (xe mới xuất hiện), tạo marker và lưu vào Object markers
-                            markers[vid] = L.marker([lat, lon], { icon: bikeIcon })
-                                .addTo(map)
-                                .bindPopup(`Xe ${vid}`);
-                        }
-                    }
-                });
-
-            } catch (err) {
-                console.error("Lỗi cập nhật:", err);
+            // A. PHẢN HỒI HEARTBEAT 
+            if (msg.type === 'heartbeat' && msg.data === 'ping') {
+                const pongFrame = JSON.stringify({ type: "heartbeat", data: "pong" });
+                socket.send(pongFrame);
+                console.log("Gửi đến server:", pongFrame);
+                return;
             }
+
+            // B. NHẬN DỮ LIỆU TỪ SERVER
+            switch (msg.type) {
+                case 'token':
+                    if (msg.data === 'OK') log("Đã xác thực quyền điều khiển", "success");
+                    break;
+
+                case 'telemetry':
+                    handleTelemetry(msg.data);
+                    break;
+
+                case 'status':
+                    handleStatus(msg.data);
+                    break;
+            }
+        };
+
+        // --- 4. XỬ LÝ LOGIC ---
+        function handleTelemetry(data) {
+            const { lat, lon, speed, vehicle_id } = data;
+            vehicleData.telemetry = data;
+
+            // Cập nhật Marker
+            if (lat && lon) {
+                if (markers[vehicle_id]) {
+                    markers[vehicle_id].setLatLng([lat, lon]);
+                } else {
+                    markers[vehicle_id] = L.marker([lat, lon], { icon: bikeIcon }).addTo(map).bindPopup(`Xe: ${vehicle_id}`);
+                }
+                map.panTo([lat, lon]); // Tự động đi theo xe
+            }
+            renderInfo();
         }
 
+        function handleStatus(data) {
+            vehicleData.status = data;
+            log(`Cập nhật trạng thái xe: Pin ${data.battery}%`, "info");
+            renderInfo();
+        }
 
-        // Cập nhật mỗi 2 giây
-        setInterval(updateDashboard, 2000);
-        updateDashboard();
+        function renderInfo() {
+            const infoBox = document.getElementById('vehicle-info');
+            const t = vehicleData.telemetry;
+            const s = vehicleData.status;
+
+            infoBox.innerHTML = `
+                <div class="flex justify-between"><span>ID Xe:</span> <b class="text-blue-400">${t.vehicle_id || '---'}</b></div>
+                <div class="flex justify-between"><span>Vận tốc:</span> <b class="text-white">${t.speed || 0} km/h</b></div>
+                <div class="flex justify-between"><span>Pin:</span> <b class="${s.battery < 20 ? 'text-red-500' : 'text-green-400'}">${s.battery || 0}%</b></div>
+                <div class="flex justify-between"><span>Trạng thái:</span> <b>${s.lock_state == 1 ? '🔒 Đã khóa' : '🔓 Đang mở'}</b></div>
+            `;
+        }
+
+        // --- 5. GỬI LỆNH ĐIỀU KHIỂN (CMD) ---
+        function sendCMD(type, value) {
+            if (socket.readyState !== WebSocket.OPEN) return alert("Mất kết nối server!");
+
+            const payload = { type, value };
+            socket.send(JSON.stringify(payload));
+            log(`Gửi lệnh CMD: Type ${type}, Value ${value}`, "warning");
+        }
+
+        function log(text, type) {
+            const logBox = document.getElementById('logs');
+            const color = type === 'success' ? 'text-green-400' : type === 'warning' ? 'text-yellow-400' : 'text-blue-300';
+            logBox.innerHTML += `<div class="${color}">[${new Date().toLocaleTimeString()}] ${text}</div>`;
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        socket.onclose = () => {
+            document.getElementById('conn-status').innerText = "MẤT KẾT NỐI";
+            document.getElementById('conn-status').className = "bg-red-600 px-6 py-2 rounded-full text-sm font-bold shadow-lg";
+            log("Cảnh báo: Đã ngắt kết nối với Server!", "error");
+        }; 
+
+
+
+
+
     </script>
 </body>
 

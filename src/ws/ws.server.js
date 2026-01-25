@@ -33,47 +33,59 @@ const initWebSocket = (server) => {
             ws.send(JSON.stringify({ type: "token", data: "OK" }));
 
             // Gửi dữ liệu Snapshot ngay khi kết nối
-if (ws.vehicle_id) {
-    try {
-        const streamKey = `vehicle:stream:${ws.vehicle_id}`;
-    
-        const payload = await redisClient.hGetAll(streamKey);
+            if (ws.vehicle_id) {
+                try {
+                    const streamKey = `vehicle:stream:${ws.vehicle_id}`;
+                    const payload = await redisClient.hGetAll(streamKey);
 
-        if (Object.keys(payload).length > 0) {
-            // payload lúc này là: { telemetry: '...', status: '...', cmd: '...', vehicle_id: '...' }
-            if (payload.telemetry) {
-                ws.send(JSON.stringify({
-                    type: "telemetry",
-                    vehicle_id: ws.vehicle_id,
-                    data: JSON.parse(payload.telemetry)
-                }));
+                    const defaultTelemetry = {
+                        speed: 0, odo: 0, trip: 0, range_left: 0,
+                        voltage: 0, current: 0, soc: 0, temperature: 0,
+                        tilt_angle: 0, hill_asstistance: 0
+                    };
+
+                    const defaultStatus = {
+                        mode: 0, locked: 0, trunk_locked: 0, horn: 0,
+                        headlight: 0, rear_light: 0, turn_light: 0,
+                        push_notify: 0, batt_alerts: 0, security_alerts: 0,
+                        auto_lock: 0, bluetooth_unlock: 0, remote_access: 0
+                    };
+
+                    const telemetryData = payload.telemetry
+                        ? JSON.parse(payload.telemetry)
+                        : defaultTelemetry;
+
+                    ws.send(JSON.stringify({
+                        type: "telemetry",
+                        vehicle_id: ws.vehicle_id,
+                        data: telemetryData
+                    }));
+
+                    const statusData = payload.status
+                        ? JSON.parse(payload.status)
+                        : defaultStatus;
+
+                    ws.send(JSON.stringify({
+                        type: "status",
+                        vehicle_id: ws.vehicle_id,
+                        data: statusData
+                    }));
+
+                    console.log(`[WS] Snapshot sent for vehicle ${ws.vehicle_id}. (Source: ${payload.telemetry ? 'Redis' : 'Default'})`);
+
+                } catch (err) {
+                    console.error(`[WS] Error fetching snapshot from Redis:`, err.message);
+                }
             }
-
-            if (payload.status) {
-                ws.send(JSON.stringify({
-                    type: "status",
-                    vehicle_id: ws.vehicle_id,
-                    data: JSON.parse(payload.status)
-                }));
-            }            
-            console.log(`[WS] Snapshot sent from HASH for vehicle ${ws.vehicle_id}`);
-        } else {
-            console.log(`[WS] No data found in HASH for vehicle ${ws.vehicle_id}`);
-        }
-    } catch (err) {
-        console.error(`[WS] Error fetching snapshot from HASH:`, err.message);
-    }
-}
-
             // LẮNG NGHE TIN NHẮN TỪ CLIENT
             ws.on('message', async (message) => {
                 try {
                     const payload = JSON.parse(message);
-                    
+
                     // XỬ LÝ HEARTBEAT PONG
                     if (payload.type === 'heartbeat' && payload.data === 'pong') {
                         ws.isAlive = true;
-                        ws.missedPings = 0; 
+                        ws.missedPings = 0;
                         console.log(`[WS] Received PONG from ${ws.email}`);
                         return;
                     }
@@ -106,11 +118,11 @@ if (ws.vehicle_id) {
                     console.log(`[WS] Terminating ${ws.email} due to pong timeout`);
                     return ws.terminate();
                 }
-                
+
                 ws.isAlive = false;
                 ws.missedPings++;
                 ws.send(JSON.stringify({ type: "heartbeat", data: "ping" }));
-                console.log(`[WS] Sent Ping to ${ws.email} (Missed: ${ws.missedPings-1})`);
+                console.log(`[WS] Sent Ping to ${ws.email} (Missed: ${ws.missedPings - 1})`);
             }
         });
     }, 5000);

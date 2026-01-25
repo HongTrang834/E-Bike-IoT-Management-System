@@ -1,12 +1,14 @@
 const express = require('express');
 const router = express.Router();
 const userService = require('../services/user.service');
+const authenticate = require('../middleware/auth');
+
 
 // API Đăng ký
 router.post('/signup', async (req, res) => {
   try {
     const result = await userService.signup(req.body);
-    res.status(200).json({ message: "OK", data: result });
+    res.status(200).send();
   } catch (error) {
     res.status(error.statusCode || 500).json({ message: error.message });
   }
@@ -15,12 +17,195 @@ router.post('/signup', async (req, res) => {
 // API Đăng nhập    
 router.post('/login', async (req, res) => {
   try {
-    const { user_name, password } = req.body; 
+    const { user_name, password } = req.body;
     const result = await userService.login(user_name, password);
 
-    res.status(200).json(result); 
+    // Set tokens in headers
+    res.set({
+      'access_token': result.access_token,
+      'refresh_token': result.refresh_token,
+      'expires_in': result.expires_in.toString()
+    });
+
+    res.status(200).send();
   } catch (error) {
-    res.status(error.statusCode || 401).send(error.message);
+    res.status(error.statusCode || 401).json({ message: error.message });
   }
 });
+
+// API THêm XE cho user
+router.post('/add_vehicle', authenticate, async (req, res) => {
+  try {
+    const result = await userService.addVehicle(req.token, req.body);
+    res.status(200).json({ message: "Vehicle added successfully" });
+
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+});
+
+// API Chọn XE hiện tại
+router.get('/select', authenticate, async (req, res) => {
+  try {
+    const { vehicle_id } = req.query; // Lấy từ ?vehicle_id=1
+
+    if (!vehicle_id) {
+      return res.status(400).json({ message: "vehicle_id is required" });
+    }
+
+    await userService.selectVehicle(req.token, vehicle_id);
+    res.status(200).send();
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+});
+
+// API Lấy thông tin của process hiện tại 
+router.get('/info', authenticate, async (req, res) => {
+  try {
+    const result = await userService.getUserInfo(req.token);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+});
+
+// API Lấy lịch sử vị trí xe
+router.get('/his_location', authenticate, async (req, res) => {
+  try {
+    const { start_time, stop_time } = req.query;
+
+    if (!start_time || !stop_time) {
+      return res.status(400).json({ message: "start_time and stop_time are required" });
+    }
+
+    const result = await userService.getLocationHistory(req.token, start_time, stop_time);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+});
+
+// API Lấy lịch sử event xe
+router.get('/his_event', authenticate, async (req, res) => {
+  try {
+    const { since } = req.query;
+
+    if (!since) {
+      return res.status(400).json({ message: "since is required" });
+    }
+
+    const result = await userService.getEventHistory(req.token, since);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+});
+
+// API Lấy thông tin chi tiết xe
+router.get('/vehi_info', authenticate, async (req, res) => {
+  try {
+    const result = await userService.getVehicleInfo(req.token);
+    res.status(200).json(result);
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+});
+
+// API Xóa xe khỏi danh sách user
+router.delete('/delete_vehicle', authenticate, async (req, res) => {
+  try {
+    const { vehicle_id } = req.query;
+
+    if (!vehicle_id) {
+      return res.status(400).json({ message: "vehicle_id is required" });
+    }
+
+    await userService.deleteVehicle(req.token, vehicle_id);
+    res.status(200).send();
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+});
+
+// API Quên mật khẩu
+router.get('/forgot', async (req, res) => {
+  try {
+    const { email } = req.query;
+
+    if (!email) {
+      return res.status(400).json({ message: "email is required" });
+    }
+
+    await userService.forgotPassword(email);
+    res.status(200).send();
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+});
+
+// API Xác nhận verify code và đổi mật khẩu
+router.post('/verify', async (req, res) => {
+  try {
+    const { email, password, verify_code } = req.body;
+
+    if (!email || !password || !verify_code) {
+      return res.status(400).json({ message: "email, password, and verify_code are required" });
+    }
+
+    await userService.verifyCode(email, password, verify_code);
+    res.status(200).send();
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+});
+
+// API Đổi mật khẩu (cho user đã đăng nhập)
+router.post('/chg_password', authenticate, async (req, res) => {
+  try {
+    const { password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({ message: "password is required" });
+    }
+
+    await userService.changePassword(req.token, password);
+    res.status(200).send();
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+});
+
+// API Đăng xuất
+router.get('/logout', authenticate, async (req, res) => {
+  try {
+    await userService.logout(req.token);
+    res.status(200).send();
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+});
+
+// API Cập nhật cài đặt tài khoản
+router.post('/setting', authenticate, async (req, res) => {
+  try {
+    const { phone_num, user_name, gender, region, setting } = req.body;
+
+    if (!phone_num || !user_name || !gender || !region || !setting) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
+
+    await userService.updateAccountSetting(req.token, {
+      phone_num,
+      user_name,
+      gender,
+      region,
+      setting
+    });
+    res.status(200).send();
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ message: error.message });
+  }
+});
+
 module.exports = router;
