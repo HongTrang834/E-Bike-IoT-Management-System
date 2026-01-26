@@ -64,14 +64,16 @@ const handleMqttMessage = async (topic, message) => {
             if (lat != lastLoc.lat || lon != lastLoc.lon || heading != lastLoc.heading) {
                 const query = 'INSERT INTO location_log (time, vehicle_id, lat, lon, heading) VALUES (NOW(), $1, $2, $3, $4)';
                 await db.query(query, [vehicleId, lat, lon, heading]);
-                
+
                 // Cập nhật Redis làm bộ đệm so sánh
-                await redisClient.hSet(redisKey, { lat: lat.toString(), 
-                lon: lon.toString(), 
-                heading: heading.toString() });
+                await redisClient.hSet(redisKey, {
+                    lat: lat.toString(),
+                    lon: lon.toString(),
+                    heading: heading.toString()
+                });
                 console.log(`[Location] Updated DB for ${vehicleId}`);
             }
-            return; 
+            return;
         }
 
         // 4. Giải mã Event (16 bytes tổng cộng)
@@ -81,8 +83,8 @@ const handleMqttMessage = async (topic, message) => {
             const eventId = buffer.readUInt32LE(0);    // I - 4 bytes
             const typeId = buffer.readUInt16LE(4);     // H - 2 bytes
             const value = buffer.toString('utf8', 6, 16).replace(/\0/g, '');
-        
-// chỉ lưu khi name, value, type khác với giá trị trước đó?? 
+
+            // chỉ lưu khi name, value, type khác với giá trị trước đó?? 
             const query = 'INSERT INTO event_log (time, vehicle_id, name, type, value) VALUES (NOW(), $1, $2, $3, $4)';
             await db.query(query, [vehicleId, eventId, typeId, value]);
             console.log(`[Event] Logged for ${vehicleId}: ${eventId} (${typeId}) with value ${value}`);
@@ -90,32 +92,32 @@ const handleMqttMessage = async (topic, message) => {
         }
 
         // LƯU VÀO REDIS CHO TELEMETRY/STATUS/CMD (Stream Data)
-if (Object.keys(decodedData).length > 0) {
-    const redisStreamKey = `vehicle:stream:${vehicleId}`;
-    await redisClient.hSet(redisStreamKey, {
-        "vehicle_id": vehicleId,
-        [dataType]: JSON.stringify(decodedData)
-    });
+        if (Object.keys(decodedData).length > 0) {
+            const redisStreamKey = `vehicle:stream:${vehicleId}`;
+            await redisClient.hSet(redisStreamKey, {
+                "vehicle_id": vehicleId,
+                [dataType]: JSON.stringify(decodedData)
+            });
 
-    // PUSH DATA TO WEBSOCKET 
-    if (global.activeSockets && global.activeSockets.size > 0) {
-        const messagePayload = JSON.stringify({
-            type: dataType, // telemetry, status, hoặc location
-            data: decodedData
-        });
+            // PUSH DATA TO WEBSOCKET 
+            if (global.activeSockets && global.activeSockets.size > 0) {
+                const messagePayload = JSON.stringify({
+                    type: dataType, // telemetry, status, hoặc location
+                    data: decodedData
+                });
 
-        // Lặp qua các socket đang active để tìm user sở hữu xe này
-        for (let [email, ws] of global.activeSockets) {
-            // Lấy vehicle_id mà user này quản lý từ Redis
-            const userVehicleId = await redisClient.hGet(`user:token:${email}`, 'vehicle_id');
-            
-            if (userVehicleId === vehicleId) {
-                ws.send(messagePayload); // Gửi Text frame (Opcode 0x1/81)
-                console.log(`[WS Push] Sent ${dataType} to ${email}`);
+                // Lặp qua các socket đang active để tìm user sở hữu xe này
+                for (let [email, ws] of global.activeSockets) {
+                    // Lấy vehicle_id mà user này quản lý từ Redis
+                    const userVehicleId = await redisClient.hGet(`user:token:${email}`, 'vehicle_id');
+
+                    if (userVehicleId === vehicleId) {
+                        ws.send(messagePayload); // Gửi Text frame (Opcode 0x1/81)
+                        console.log(`[WS Push] Sent ${dataType} to ${email}`);
+                    }
+                }
             }
         }
-    }
-}
 
     } catch (error) {
         console.error('Error handling Binary MQTT message:', error.message);
@@ -128,17 +130,41 @@ if (Object.keys(decodedData).length > 0) {
 const sendCommand = async (mqttClient, vehicleId, type, data) => {
     const topic = `bike/${vehicleId}/cmd`;
 
+    // Mapping tên command sang field number
+    const COMMAND_MAP = {
+        'lock': 1,
+        'trunk_lock': 2,
+        'horn': 3,
+        'answareback': 4,
+        'headlight': 5,
+        'rear_light': 6,
+        'turn_light': 7,
+        'push_notify': 8,
+        'batt_alerts': 9,
+        'security_alerts': 10,
+        'auto_lock': 11,
+        'bluetooth_unlock': 12,
+        'remote_access': 13
+    };
+
+    const fieldNumber = COMMAND_MAP[type];
+    if (fieldNumber === undefined) {
+        console.error(`[Command] Unknown command type: ${type}`);
+        return;
+    }
+
     const buffer = Buffer.alloc(4);
-    buffer.writeInt16LE(type, 0);    // H - 2 bytes
-    buffer.writeInt16LE(data, 2);   // H - 2 bytes
+    buffer.writeUInt16LE(fieldNumber, 0);  // Field number - 2 bytes
+    buffer.writeUInt16LE(data, 2);         // Data value - 2 bytes
+
     mqttClient.publish(topic, buffer, { qos: 2 });
 
     const redisKey = `vehicle:stream:${vehicleId}`;
     await redisClient.hSet(redisKey, {
         "vehicle_id": vehicleId,
-        "cmd": JSON.stringify({ type, data: data})   
+        "cmd": JSON.stringify({ type, data: data })
     });
-    console.log(`[Command] Sent Binary to ${vehicleId}: Type ${type}, Data ${data}`);
+    console.log(`[Command] Sent Binary to ${vehicleId}: ${type}(${fieldNumber})=${data} (QoS 2)`);
 };
 
 module.exports = { handleMqttMessage, sendCommand };

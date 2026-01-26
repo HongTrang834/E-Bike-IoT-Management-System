@@ -7,6 +7,7 @@ import sys
 import paho.mqtt.client as mqtt
 
 # ===== MQTT CONFIG =====
+# MQTT_BROKER = "23.21.57.218"
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
 BASE_TOPIC = "bike"
@@ -23,10 +24,15 @@ else:
     VEHICLES = ["1"]
 
 # ===== MQTT CLIENT =====
-client = mqtt.Client()
+# Paho MQTT v2 thay đổi callback API, đảm bảo tương thích v1/v311
+try:
+    client = mqtt.Client(protocol=mqtt.MQTTv311)
+except TypeError:
+    # Fallback nếu môi trường dùng paho < 1.6
+    client = mqtt.Client()
 
 # ===== MQTT CALLBACK =====
-def on_connect(client, userdata, flags, rc):
+def on_connect(client, userdata, flags, rc, properties=None):
     print("🔗 Connected to MQTT broker, rc =", rc)
 
     # Subscribe command topic for each vehicle
@@ -67,6 +73,24 @@ def on_message(client, userdata, msg):
             return
         value = int.from_bytes(payload[2:4], byteorder='little', signed=False)
         vehicle_key = f"id_{vehicle_id}"
+        if vehicle_key not in vehicle_status:
+            # Khởi tạo mặc định nếu thiếu
+            vehicle_status[vehicle_key] = {
+                "mode": 0,
+                "locked": 0,
+                "trunk_locked": 0,
+                "horn": 0,
+                "answareback": 0,
+                "headlight": 0,
+                "rear_light": 0,
+                "turn_light": 0,
+                "push_notify": 0,
+                "batt_alerts": 0,
+                "security_alerts": 0,
+                "auto_lock": 0,
+                "bluetooth_unlock": 0,
+                "remote_access": 0,
+            }
         print(f"📥 Decode: {key}: {value}")
         # print(vehicle_status[vehicle_key])
         # print(field, value)
@@ -108,8 +132,13 @@ def on_message(client, userdata, msg):
 client.on_connect = on_connect
 client.on_message = on_message
 
-client.connect(MQTT_BROKER, MQTT_PORT, 60)
-client.loop_start()
+# Kết nối MQTT an toàn, tránh crash nếu broker chưa chạy
+try:
+    client.connect(MQTT_BROKER, MQTT_PORT, 60)
+    client.loop_start()
+except Exception as e:
+    print(f"❌ MQTT connect error to {MQTT_BROKER}:{MQTT_PORT} -> {e}")
+    print("👉 Hãy đảm bảo broker đang chạy (mosquitto) rồi thử lại.")
 
 def to_bytearray(telemetry: dict) -> bytearray:
     buf = bytearray()
@@ -174,26 +203,15 @@ def random_telemetry():
         "hillassistance_1": random.randint(0, 1)
     }
 currentLocation = {"lat": 16.082377, "lon": 108.221459}
-# def random_location():
-#     global currentLocation
-#     currentLocation["lat"] += round(random.uniform(-0.0001, 0.0001), 6)
-#     currentLocation["lon"] += round(random.uniform(-0.0001, 0.0001), 6)
-#     return {
-#         "lat_4": currentLocation["lat"],
-#         "lon_4": currentLocation["lon"],
-#         "heading_2": random.randint(0, 360)
-#     }
-
-# giới hạn vị trí trong phạm vi thành phố Hồ Chí Minh
 def random_location():
+    global currentLocation
+    currentLocation["lat"] += round(random.uniform(-0.0001, 0.0001), 6)
+    currentLocation["lon"] += round(random.uniform(-0.0001, 0.0001), 6)
     return {
-        "lat_4": int(random.uniform(10.7600, 10.8200) * 10000000),
-        "lon_4": int(random.uniform(106.6300, 106.7000) * 10000000),
+        "lat_4": currentLocation["lat"],
+        "lon_4": currentLocation["lon"],
         "heading_2": random.randint(0, 360)
     }
-
-
-
 
 # event_name allowed: 0-3, 11-12, 21-26
 ALLOWED_EVENTS = (
@@ -242,11 +260,34 @@ def post_vehicle_registration(url, vehicle_id, model, color, battery_voltage, ba
         return None
 # ===== VEHICLE REGISTRATION =====
 for i in VEHICLES:
-    r = requests.get("http://23.21.57.218:1880/redis/data?vehicle_id=" + i)
-    data = r.json()
-    vehicle_status["id_" + i] = data
+    # Khởi tạo mặc định trước tiên
+    vehicle_status["id_" + i] = {
+        "mode": 0,
+        "locked": 0,
+        "trunk_locked": 0,
+        "horn": 0,
+        "answareback": 0,
+        "headlight": 0,
+        "rear_light": 0,
+        "turn_light": 0,
+        "push_notify": 0,
+        "batt_alerts": 0,
+        "security_alerts": 0,
+        "auto_lock": 0,
+        "bluetooth_unlock": 0,
+        "remote_access": 0,
+    }
+    try:
+        r = requests.get("http://localhost:1880/redis/data?vehicle_id=" + i, timeout=3)
+        r.raise_for_status()
+        data = r.json()
+        if isinstance(data, dict):
+            vehicle_status["id_" + i].update(data)
+    except Exception as e:
+        print(f"⚠️  Bootstrap vehicle {i} from Node-RED failed: {e}. Using defaults.")
 # connect vehicles
-REGISTER_URL = "http://localhost:3000/api/vehicle/connect"
+# REGISTER_URL = "http://23.21.57.218:4000/api/vehicle/connect"
+REGISTER_URL = "http://localhost:4000/api/vehicle/connect"
 for i in VEHICLES:
     resp = post_vehicle_registration(
         REGISTER_URL,
@@ -263,50 +304,24 @@ for i in VEHICLES:
 print("✅ MQTT bike publisher + cmd subscriber started")
 vehicle_index = 0
 
-# try:
-#     while True:
-#         data_map = {
-#             "telemetry": random_telemetry(),
-#             "location": random_location(),
-#             "event": random_event()
-#         }
-
-#         for vehicle_id in VEHICLES:
-#             for element, payload in data_map.items():
-#                 qos = 2 if element == "event" else 0
-#                 topic = f"{BASE_TOPIC}/{vehicle_id}/{element}"
-#                 # topic = f"{BASE_TOPIC}/{vehicle_id}/"  + "test/" + f"{element}"
-#                 element = to_bytearray(payload)
-#                 client.publish(topic, element, qos=qos)
-#                 print(f"Publish {topic}")
-#                 print(payload)
-#                 print("    ", element)
-#         time.sleep(1)
-
-
-
 try:
     while True:
-        # Chuyển vòng lặp VEHICLES lên trên
+        data_map = {
+            "telemetry": random_telemetry(),
+            "location": random_location(),
+            "event": random_event()
+        }
+
         for vehicle_id in VEHICLES:
-            # Tạo dữ liệu RIÊNG cho từng xe ở đây
-            data_map = {
-                "telemetry": random_telemetry(),
-                "location": random_location(),
-                "event": random_event()
-            }
-            
             for element, payload in data_map.items():
                 qos = 2 if element == "event" else 0
                 topic = f"{BASE_TOPIC}/{vehicle_id}/{element}"
-                
-                element_data = to_bytearray(payload)
-                
-                client.publish(topic, element_data, qos=qos)
-            
-
-        time.sleep(1) # Nghỉ 1 giây sau khi đã gửi cho toàn bộ danh sách xe
-        
-        
+                # topic = f"{BASE_TOPIC}/{vehicle_id}/"  + "test/" + f"{element}"
+                element = to_bytearray(payload)
+                client.publish(topic, element, qos=qos)
+                print(f"Publish {topic}")
+                print(payload)
+                print("    ", element)
+        time.sleep(1)
 except KeyboardInterrupt:
     print("\n🛑 Stopping program...")
