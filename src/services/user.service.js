@@ -2,11 +2,17 @@ const db = require('../config/db');
 const redisClient = require('../config/redis');
 const bcrypt = require('bcrypt');
 
-
 const signup = async (userData) => {
   const { email, user_name, password } = userData;
 
-  // 1. Check account exist
+  // check invalid JSON format
+  if (!email || !user_name || !password) {
+    const error = new Error("Invalid JSON format!");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  // Check account exist
   const userExist = await db.query('SELECT email FROM accounts WHERE email = $1', [email]);
   if (userExist.rows.length > 0) {
     const error = new Error("Account already exists");
@@ -14,11 +20,12 @@ const signup = async (userData) => {
     throw error;
   }
 
-  // 2. hash password    
+
+  // hash password    
   const salt = await bcrypt.genSalt(10);
   const hashedPassword = await bcrypt.hash(password, salt);
 
-  // 3. Save to DB
+  // Save to DB
   const query = 'INSERT INTO accounts (email, user_name, password) VALUES ($1, $2, $3) RETURNING email, user_name';
   const result = await db.query(query, [email, user_name, hashedPassword]);
 
@@ -81,6 +88,11 @@ const addVehicle = async (token, vehicleData) => {
 
   const sessionKey = `user:token:${token}`;
   const sessionData = await redisClient.hGetAll(sessionKey);
+  if (!vehicle_id || !vehicle_name) {
+    const error = new Error("Invalid JSON format!");
+    error.statusCode = 400;
+    throw error;
+  }
   if (Object.keys(sessionData).length === 0) {
     const error = new Error("Missing or invalid token");
     error.statusCode = 401;
@@ -405,7 +417,7 @@ const deleteVehicle = async (token, vehicleId) => {
 
     await db.query('UPDATE accounts SET vehicle_id = $1 WHERE email = $2', [nextVehicleId, email]);
 
-    await redisClient.hSet(sessionKey, 'vehicle_id', nextVehicleId ? nextVehicleId.toString() : '');
+    await redisClient.hSet(sessionKey, 'vehicle_id', nextVehicleId ? nextVehicleId.toString() : '0');
   }
 
   return;

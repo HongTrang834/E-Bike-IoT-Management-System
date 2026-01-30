@@ -25,7 +25,8 @@ const initWebSocket = (server) => {
                     if (!token) {
                         console.log("[WS] Auth rejected: No token provided");
                         ws.send(JSON.stringify({ type: "token", data: { value: "NG" } }));
-                        return ws.terminate();
+                        // return ws.terminate();
+                        return;
                     }
 
                     // Truy vấn Redis
@@ -35,7 +36,8 @@ const initWebSocket = (server) => {
                     if (Object.keys(sessionData).length === 0) {
                         console.log(`[WS] Auth Failed: Token not found in Redis`);
                         ws.send(JSON.stringify({ type: "token", data: { value: "NG" } }));
-                        return ws.terminate();
+                        // return ws.terminate();
+                        return;
                     }
 
                     // Check vehicle_id > 0
@@ -44,7 +46,7 @@ const initWebSocket = (server) => {
                     if (vehicleId <= 0) {
                         console.log(`[WS] Auth Failed: No vehicle selected for ${sessionData.email}`);
                         ws.send(JSON.stringify({ type: "token", data: { value: "NG" } }));
-                        return ws.terminate();
+                        return;
                     }
 
                     // --- AUTH THÀNH CÔNG ---
@@ -61,6 +63,9 @@ const initWebSocket = (server) => {
                     const currentTime = Date.now().toString();
 
                     ws.sessionId = sessionId;
+
+                    // THÊM VÀO DANH SÁCH ACTIVE SOCKETS
+                    global.activeSockets.set(sessionId, ws);
 
                     await redisClient.hSet(sessionKey, {
                         'session': sessionId,
@@ -118,7 +123,8 @@ const initWebSocket = (server) => {
                 }
 
                 // XỬ LÝ HEARTBEAT PONG (chỉ sau khi auth)
-                if (isAuthenticated && payload.type === 'heartbeat' && payload.data?.value === 'pong') {
+                //isAuthenticated &&
+                if (payload.type === 'heartbeat' && payload.data?.value === 'pong') {
                     ws.isAlive = true;
                     ws.missedPings = 0;
 
@@ -145,10 +151,10 @@ const initWebSocket = (server) => {
                 }
 
                 // Nếu chưa auth và không phải token message
-                if (!isAuthenticated) {
-                    console.log("[WS] Ignoring message: Not authenticated yet");
-                    return;
-                }
+                // if (!isAuthenticated) {
+                //     console.log("[WS] Ignoring message: Not authenticated yet");
+                //     return;
+                // }
 
             } catch (e) {
                 console.error("[WS] Message Parse Error:", e.message);
@@ -158,6 +164,8 @@ const initWebSocket = (server) => {
         ws.on('close', async () => {
             if (isAuthenticated && ws.sessionId) {
                 console.log(`[WS] Client ${ws.email} closed connection`);
+                // Xóa khỏi ACTIVE SOCKETS
+                global.activeSockets.delete(ws.sessionId);
                 // Clear session field trên user:token khi đóng kết nối
                 const sessionKey = `user:token:${ws.userToken}`;
                 await redisClient.hSet(sessionKey, 'session', '');
@@ -185,9 +193,16 @@ const initWebSocket = (server) => {
                 console.log(`[WS] Sent Ping to ${ws.email} (Missed: ${ws.missedPings - 1})`);
             }
         });
-    }, 5000);
+    }, 500000);
+
+    // DEBUG: Lắng nghe tất cả tin nhắn thô
+    wss.on('message', (message) => {
+        console.log('Raw message nhận được:', message.toString());
+    });
 
     wss.on('close', () => clearInterval(interval));
+
 };
+
 
 module.exports = initWebSocket;

@@ -99,23 +99,24 @@ const handleMqttMessage = async (topic, message) => {
                 [dataType]: JSON.stringify(decodedData)
             });
 
-            // PUSH DATA TO WEBSOCKET 
+            // PUSH DỮ LIỆU ĐẾN TẤT CẢ CLIENT WEBSOCKET KẾT NỐI VỚI XE NÀY
             if (global.activeSockets && global.activeSockets.size > 0) {
-                const messagePayload = JSON.stringify({
-                    type: dataType, // telemetry, status, hoặc location
-                    data: decodedData
+                const messageToSend = JSON.stringify({
+                    type: dataType,
+                    vehicle_id: vehicleId,
+                    data: decodedData,
+                    timestamp: Date.now()
                 });
 
-                // Lặp qua các socket đang active để tìm user sở hữu xe này
-                for (let [email, ws] of global.activeSockets) {
-                    // Lấy vehicle_id mà user này quản lý từ Redis
-                    const userVehicleId = await redisClient.hGet(`user:token:${email}`, 'vehicle_id');
-
-                    if (userVehicleId === vehicleId) {
-                        ws.send(messagePayload); // Gửi Text frame (Opcode 0x1/81)
-                        console.log(`[WS Push] Sent ${dataType} to ${email}`);
+                global.activeSockets.forEach((ws) => {
+                    // Gửi cho tất cả client theo dõi xe này
+                    if (ws.vehicle_id === parseInt(vehicleId) && ws.readyState === 1) { // 1 = OPEN
+                        ws.send(messageToSend);
+                        console.log(`[WebSocket] Pushed ${dataType} to client ${ws.email} for vehicle ${vehicleId}`);
                     }
-                }
+                });
+            } else {
+                console.log(`[WebSocket] No active clients for vehicle ${vehicleId}`);
             }
         }
 

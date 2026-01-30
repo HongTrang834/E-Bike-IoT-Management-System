@@ -2,13 +2,15 @@ require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const cors = require('cors');
-const initWebSocket = require('./ws/ws.server'); // Import file vừa tạo
+
+global.activeSockets = new Map();
+const initWebSocket = require('./ws/ws.server');
 
 const app = express();
 app.use(express.json());
 app.use(cors());
 
-const server = http.createServer(app); 
+const server = http.createServer(app);
 
 // KHỞI TẠO WEBSOCKET
 initWebSocket(server);
@@ -23,7 +25,7 @@ app.use('/api/vehicle', vehicleRoutes);
 const mqttClient = require('./config/mqtt');
 const mqttService = require('./services/mqtt.service');
 mqttClient.on('message', (topic, message) => {
-    mqttService.handleMqttMessage(topic, message);  
+    mqttService.handleMqttMessage(topic, message);
 });
 
 const PORT = process.env.PORT || 3000;
