@@ -14,4 +14,14 @@ router.post('/connect', async (req, res) => {
     }
 });
 
+// Get vehicle state from Redis for simulation
+router.get('/state/:vehicleId', async (req, res) => {
+    try {
+        const result = await eventService.getVehicleState(req.params.vehicleId);
+        res.status(200).json(result);
+    } catch (error) {
+        res.status(error.statusCode || 500).json({ error: error.message });
+    }
+});
+
 module.exports = router;

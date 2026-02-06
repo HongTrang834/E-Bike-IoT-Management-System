@@ -290,7 +290,7 @@ BE_server/
 
 #### 1. Đăng Ký
 ```
-POST /api/user/signup
+POST /api/user/sigup
 ```
 
 #### 2. Đăng Nhập

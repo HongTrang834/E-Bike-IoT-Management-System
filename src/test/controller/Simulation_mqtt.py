@@ -92,39 +92,12 @@ def on_message(client, userdata, msg):
                 "remote_access": 0,
             }
         print(f"📥 Decode: {key}: {value}")
-        # print(vehicle_status[vehicle_key])
-        # print(field, value)
+        
+        # Update the field value directly without publishing back
+        # Backend has already updated Redis, we just acknowledge the command
         vehicle_status[vehicle_key][key] = value
-        vehicle_status[vehicle_key]["mode"] = random.randint(0, 2)
-        status_trans = {}
-        KEY_MAP = {
-            "mode": "mode_2",
-            "locked": "locked_1",
-            "trunk_locked": "trunklocked_1",
-            "horn": "horn_1",
-            "answareback": "answareback_1",
-            "headlight": "headlight_1",
-            "rear_light": "rearlight_1",
-            "turn_light": "turnlight_2",
-            "push_notify": "pushnotify_1",
-            "batt_alerts": "battalerts_1",
-            "security_alerts": "securityalerts_1",
-            "auto_lock": "autolock_1",
-            "bluetooth_unlock": "bluetoothunlock_1",
-            "remote_access": "remoteaccess_1"
-        }
-        for old_key, new_key in KEY_MAP.items():
-            val = vehicle_status[vehicle_key].get(old_key)
-            status_trans[new_key] = val
-
-        status_bytearr = to_bytearray(status_trans)
-
-        # MQTT Public to server
-        topic = f"{BASE_TOPIC}/{vehicle_id}/status"
-        client.publish(topic, status_bytearr, qos=0)
-        print(f"Publish {topic}")
-        print(status_bytearr)
-        print("    ", vehicle_status[vehicle_key])
+        print(f"✅ Command acknowledged. Updated local state: {key}={value}")
+        print(f"📍 NOT publishing status from simulation - let backend handle it from Redis")
 
     except Exception as e:
         print("CMD handling error:", e)
@@ -277,17 +250,19 @@ for i in VEHICLES:
         "bluetooth_unlock": 0,
         "remote_access": 0,
     }
+    # Get current state from Node.js backend (not Node-RED)
     try:
-        r = requests.get("http://localhost:1880/redis/data?vehicle_id=" + i, timeout=3)
+        r = requests.get(f"http://localhost:3000/api/vehicle/state/{i}", timeout=3)
         r.raise_for_status()
         data = r.json()
         if isinstance(data, dict):
             vehicle_status["id_" + i].update(data)
+            print(f"✅ Loaded state for vehicle {i} from backend")
     except Exception as e:
-        print(f"⚠️  Bootstrap vehicle {i} from Node-RED failed: {e}. Using defaults.")
+        print(f"⚠️  Bootstrap vehicle {i} from backend failed: {e}. Using defaults.")
 # connect vehicles
-# REGISTER_URL = "http://23.21.57.218:4000/api/vehicle/connect"
-REGISTER_URL = "http://localhost:4000/api/vehicle/connect"
+# REGISTER_URL = "http://23.21.57.218:3000/api/vehicle/connect"
+REGISTER_URL = "http://localhost:3000/api/vehicle/connect"
 for i in VEHICLES:
     resp = post_vehicle_registration(
         REGISTER_URL,

@@ -94,10 +94,31 @@ const handleMqttMessage = async (topic, message) => {
         // LƯU VÀO REDIS CHO TELEMETRY/STATUS/CMD (Stream Data)
         if (Object.keys(decodedData).length > 0) {
             const redisStreamKey = `vehicle:stream:${vehicleId}`;
-            await redisClient.hSet(redisStreamKey, {
-                "vehicle_id": vehicleId,
-                [dataType]: JSON.stringify(decodedData)
-            });
+
+            // CRITICAL FIX: For STATUS from simulation, DO NOT overwrite Redis
+            // Backend commands already update Redis with correct state
+            // Simulation status may have stale data that overwrites user changes
+            if (dataType === 'status') {
+                console.log(`[Status] Received from simulation but NOT updating Redis (backend state has priority)`);
+                console.log(`[Status] Simulation data:`, decodedData);
+
+                // Get current status from Redis to broadcast via WebSocket
+                const currentData = await redisClient.hGetAll(redisStreamKey);
+                if (currentData && currentData.status) {
+                    try {
+                        decodedData = JSON.parse(currentData.status);
+                        console.log(`[Status] Using Redis state for broadcast:`, decodedData);
+                    } catch (e) {
+                        console.error('[Status] Error parsing Redis status:', e);
+                    }
+                }
+            } else {
+                // For telemetry and other types, save directly
+                await redisClient.hSet(redisStreamKey, {
+                    "vehicle_id": vehicleId,
+                    [dataType]: JSON.stringify(decodedData)
+                });
+            }
 
             // PUSH DỮ LIỆU ĐẾN TẤT CẢ CLIENT WEBSOCKET KẾT NỐI VỚI XE NÀY
             if (global.activeSockets && global.activeSockets.size > 0) {
@@ -131,26 +152,40 @@ const handleMqttMessage = async (topic, message) => {
 const sendCommand = async (mqttClient, vehicleId, type, data) => {
     const topic = `bike/${vehicleId}/cmd`;
 
-    // Mapping tên command sang field number
+    // Mapping tên command sang field number (with aliases for frontend compatibility)
     const COMMAND_MAP = {
         'lock': 1,
+        'locked': 1,  // alias
         'trunk_lock': 2,
+        'trunk_locked': 2,  // alias
+        'trunk_open': 2,  // alias
         'horn': 3,
         'answareback': 4,
+        'answerback': 4,  // alias (correct spelling)
         'headlight': 5,
         'rear_light': 6,
+        'rearlight': 6,  // alias
         'turn_light': 7,
+        'turnlight': 7,  // alias
         'push_notify': 8,
+        'pushnotify': 8,  // alias
         'batt_alerts': 9,
+        'battalerts': 9,  // alias
+        'battery_alerts': 9,  // alias
         'security_alerts': 10,
+        'securityalerts': 10,  // alias
         'auto_lock': 11,
+        'autolock': 11,  // alias
         'bluetooth_unlock': 12,
-        'remote_access': 13
+        'bluetoothunlock': 12,  // alias
+        'remote_access': 13,
+        'remoteaccess': 13  // alias
     };
 
     const fieldNumber = COMMAND_MAP[type];
     if (fieldNumber === undefined) {
-        console.error(`[Command] Unknown command type: ${type}`);
+        console.error(`[Command] Unknown command type: "${type}" - Please check frontend is sending correct field name`);
+        console.error(`[Command] Available commands:`, Object.keys(COMMAND_MAP).join(', '));
         return;
     }
 
@@ -160,11 +195,92 @@ const sendCommand = async (mqttClient, vehicleId, type, data) => {
 
     mqttClient.publish(topic, buffer, { qos: 2 });
 
+    // CRITICAL FIX: Update Redis status immediately when sending command
+    // This ensures simulation gets the correct state when it queries backend
     const redisKey = `vehicle:stream:${vehicleId}`;
-    await redisClient.hSet(redisKey, {
-        "vehicle_id": vehicleId,
-        "cmd": JSON.stringify({ type, data: data })
-    });
+
+    // Get current status from Redis
+    const currentData = await redisClient.hGetAll(redisKey);
+
+    // Start with complete default state to avoid losing fields
+    let currentStatus = {
+        mode: 0,
+        locked: false,
+        trunk_locked: false,
+        horn: false,
+        answareback: false,
+        headlight: false,
+        rear_light: false,
+        turn_light: 0,
+        push_notify: false,
+        batt_alerts: false,
+        security_alerts: false,
+        auto_lock: false,
+        bluetooth_unlock: false,
+        remote_access: false
+    };
+
+    // Merge with existing status in Redis (if any)
+    if (currentData && currentData.status) {
+        try {
+            const existingStatus = JSON.parse(currentData.status);
+            Object.assign(currentStatus, existingStatus);
+        } catch (e) {
+            console.error('[Command] Error parsing current status:', e);
+        }
+    }
+
+    // Map command type to status field name (with aliases)
+    const COMMAND_TO_STATUS_MAP = {
+        'lock': 'locked',
+        'locked': 'locked',
+        'trunk_lock': 'trunk_locked',
+        'trunk_locked': 'trunk_locked',
+        'trunk_open': 'trunk_locked',
+        'horn': 'horn',
+        'answareback': 'answareback',
+        'answerback': 'answareback',
+        'headlight': 'headlight',
+        'rear_light': 'rear_light',
+        'rearlight': 'rear_light',
+        'turn_light': 'turn_light',
+        'turnlight': 'turn_light',
+        'push_notify': 'push_notify',
+        'pushnotify': 'push_notify',
+        'batt_alerts': 'batt_alerts',
+        'battalerts': 'batt_alerts',
+        'battery_alerts': 'batt_alerts',
+        'security_alerts': 'security_alerts',
+        'securityalerts': 'security_alerts',
+        'auto_lock': 'auto_lock',
+        'autolock': 'auto_lock',
+        'bluetooth_unlock': 'bluetooth_unlock',
+        'bluetoothunlock': 'bluetooth_unlock',
+        'remote_access': 'remote_access',
+        'remoteaccess': 'remote_access'
+    };
+
+    const statusFieldName = COMMAND_TO_STATUS_MAP[type];
+    if (statusFieldName) {
+        // Update the status field with the new value (convert 0/1 to boolean)
+        currentStatus[statusFieldName] = data === 1;
+
+        // Save COMPLETE status back to Redis (not just one field!)
+        await redisClient.hSet(redisKey, {
+            "vehicle_id": vehicleId,
+            "status": JSON.stringify(currentStatus),
+            "cmd": JSON.stringify({ type, data: data })
+        });
+
+        console.log(`[Command] Updated Redis status: ${statusFieldName}=${currentStatus[statusFieldName]}`);
+    } else {
+        // Fallback: just save cmd if mapping not found
+        await redisClient.hSet(redisKey, {
+            "vehicle_id": vehicleId,
+            "cmd": JSON.stringify({ type, data: data })
+        });
+    }
+
     console.log(`[Command] Sent Binary to ${vehicleId}: ${type}(${fieldNumber})=${data} (QoS 2)`);
 };
 

@@ -2,7 +2,7 @@ const db = require('../config/db');
 const redisClient = require('../config/redis');
 const bcrypt = require('bcrypt');
 
-const signup = async (userData) => {
+const sigup = async (userData) => {
   const { email, user_name, password } = userData;
 
   // check invalid JSON format
@@ -577,4 +577,4 @@ const updateAccountSetting = async (token, settingData) => {
   return;
 };
 
-module.exports = { signup, login, addVehicle, selectVehicle, getUserInfo, getLocationHistory, getEventHistory, getVehicleInfo, deleteVehicle, forgotPassword, verifyCode, changePassword, logout, updateAccountSetting };
+module.exports = { sigup, login, addVehicle, selectVehicle, getUserInfo, getLocationHistory, getEventHistory, getVehicleInfo, deleteVehicle, forgotPassword, verifyCode, changePassword, logout, updateAccountSetting };
