@@ -93,11 +93,41 @@ def on_message(client, userdata, msg):
             }
         print(f"📥 Decode: {key}: {value}")
         
-        # Update the field value directly without publishing back
-        # Backend has already updated Redis, we just acknowledge the command
+        # Update status và gửi lại cho backend
         vehicle_status[vehicle_key][key] = value
-        print(f"✅ Command acknowledged. Updated local state: {key}={value}")
-        print(f"📍 NOT publishing status from simulation - let backend handle it from Redis")
+        vehicle_status[vehicle_key]["mode"] = random.randint(0, 2)
+        
+        # Map key sang format MQTT (với _suffix bit count)
+        KEY_MAP = {
+            "mode": "mode_2",
+            "locked": "locked_1",
+            "trunk_locked": "trunk_locked_1",
+            "horn": "horn_1",
+            "answareback": "answareback_1",
+            "headlight": "headlight_1",
+            "rear_light": "rear_light_1",
+            "turn_light": "turn_light_1",
+            "push_notify": "push_notify_1",
+            "batt_alerts": "batt_alerts_1",
+            "security_alerts": "security_alerts_1",
+            "auto_lock": "auto_lock_1",
+            "bluetooth_unlock": "bluetooth_unlock_1",
+            "remote_access": "remote_access_1"
+        }
+        
+        status_trans = {}
+        for old_key, new_key in KEY_MAP.items():
+            val = vehicle_status[vehicle_key].get(old_key, 0)
+            status_trans[new_key] = val
+        
+        # Chuyển thành bytearray và gửi lại
+        status_bytearr = to_bytearray(status_trans)
+        
+        # Publish status lên backend
+        status_topic = f"{BASE_TOPIC}/{vehicle_id}/status"
+        client.publish(status_topic, status_bytearr, qos=0)
+        print(f"✅ Status published back: {status_topic}")
+        print(f"   Updated state: {vehicle_status[vehicle_key]}")
 
     except Exception as e:
         print("CMD handling error:", e)

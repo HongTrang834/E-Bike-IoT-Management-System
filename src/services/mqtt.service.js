@@ -1,6 +1,13 @@
 const redisClient = require('../config/redis');
 const db = require('../config/db');
 
+// Import broadcast function (define sau)
+let broadcastVehicleState;
+
+const setBroadcastFunction = (fn) => {
+    broadcastVehicleState = fn;
+};
+
 /**
  * Xử lý giải mã dữ liệu Binary MQTT từ xe gửi lên
  */
@@ -53,9 +60,9 @@ const handleMqttMessage = async (topic, message) => {
 
         // 3. Giải mã Location (10 bytes tổng cộng)
         else if (dataType === "location") {
-            const lat = buffer.readInt32LE(0) / 10000000; // l - 4 bytes
-            const lon = buffer.readInt32LE(4) / 10000000; // l - 4 bytes
-            const heading = buffer.readUInt16LE(8);       // H - 2 bytes
+            const lat = buffer.readFloatLE(0);      // f - 4 bytes
+            const lon = buffer.readFloatLE(4);      // f - 4 bytes
+            const heading = buffer.readUInt16LE(8); // H - 2 bytes
 
             const redisKey = `vehicle:last_location:${vehicleId}`;
             const lastLoc = await redisClient.hGetAll(redisKey);
@@ -71,7 +78,15 @@ const handleMqttMessage = async (topic, message) => {
                     lon: lon.toString(),
                     heading: heading.toString()
                 });
-                console.log(`[Location] Updated DB for ${vehicleId}`);
+                console.log(`[Location] Updated DB for ${vehicleId}: lat=${lat}, lon=${lon}`);
+
+                // Broadcast location to all WebSocket clients for this vehicle
+                const locationData = { lat, lon, heading };
+                try {
+                    await broadcastVehicleState(vehicleId, 'location', locationData);
+                } catch (err) {
+                    console.error('[Location] Error broadcasting:', err.message);
+                }
             }
             return;
         }
@@ -274,6 +289,15 @@ const sendCommand = async (mqttClient, vehicleId, type, data) => {
         });
 
         console.log(`[Command] Updated Redis status: ${statusFieldName}=${currentStatus[statusFieldName]}`);
+
+        // Broadcast updated status to all WebSocket clients for this vehicle
+        try {
+            console.log(`[Command] Calling broadcastVehicleState for vehicle ${vehicleId}`);
+            await broadcastVehicleState(vehicleId, 'status', currentStatus);
+            console.log(`[Command] broadcastVehicleState completed successfully`);
+        } catch (err) {
+            console.error('[Command] Error broadcasting status update:', err.message);
+        }
     } else {
         // Fallback: just save cmd if mapping not found
         await redisClient.hSet(redisKey, {
@@ -285,4 +309,4 @@ const sendCommand = async (mqttClient, vehicleId, type, data) => {
     console.log(`[Command] Sent Binary to ${vehicleId}: ${type}(${fieldNumber})=${data} (QoS 2)`);
 };
 
-module.exports = { handleMqttMessage, sendCommand };
+module.exports = { handleMqttMessage, sendCommand, setBroadcastFunction };

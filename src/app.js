@@ -4,7 +4,7 @@ const http = require('http');
 const cors = require('cors');
 
 global.activeSockets = new Map();
-const initWebSocket = require('./ws/ws.server');
+const { initWebSocket, broadcastVehicleState } = require('./ws/ws.server');
 
 const app = express();
 // Accept JSON bodies even when clients omit Content-Type.
@@ -21,6 +21,10 @@ const vehicleRoutes = require('./api/vehicle.route');
 const userRoutes = require('./api/user.route');
 app.use('/api/user', userRoutes);
 app.use('/api/vehicle', vehicleRoutes);
+
+// Setup broadcast function for MQTT service
+const { setBroadcastFunction } = require('./services/mqtt.service');
+setBroadcastFunction(broadcastVehicleState);
 
 // MQTT setup 
 const mqttClient = require('./config/mqtt');

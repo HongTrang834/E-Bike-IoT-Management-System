@@ -3,8 +3,11 @@ const redisClient = require('../config/redis');
 const mqttService = require('../services/mqtt.service');
 const mqttClient = require('../config/mqtt');
 
+let wssInstance = null;
+
 const initWebSocket = (server) => {
     const wss = new WebSocket.Server({ server, path: '/api/user/ws' });
+    wssInstance = wss;
 
     wss.on('connection', async (ws, req) => {
         console.log(`[WS] New connection - waiting for token verification`);
@@ -24,8 +27,7 @@ const initWebSocket = (server) => {
 
                     if (!token) {
                         console.log("[WS] Auth rejected: No token provided");
-                        ws.send(JSON.stringify({ type: "token", data: { value: "NG" } }));
-                        // return ws.terminate();
+                        ws.send(JSON.stringify({ type: "token", data: { value: "NG token" } }));
                         return;
                     }
 
@@ -35,8 +37,7 @@ const initWebSocket = (server) => {
 
                     if (Object.keys(sessionData).length === 0) {
                         console.log(`[WS] Auth Failed: Token not found in Redis`);
-                        ws.send(JSON.stringify({ type: "token", data: { value: "NG" } }));
-                        // return ws.terminate();
+                        ws.send(JSON.stringify({ type: "token", data: { value: "NG token" } }));
                         return;
                     }
 
@@ -45,7 +46,7 @@ const initWebSocket = (server) => {
 
                     if (vehicleId <= 0) {
                         console.log(`[WS] Auth Failed: No vehicle selected for ${sessionData.email}`);
-                        ws.send(JSON.stringify({ type: "token", data: { value: "NG" } }));
+                        ws.send(JSON.stringify({ type: "token", data: { value: "NG vehicle empty" } }));
                         return;
                     }
 
@@ -143,10 +144,15 @@ const initWebSocket = (server) => {
                     const cmdData = payload.data.data;
 
                     console.log(`[WS] Received command from ${ws.email}: ${cmdType}=${cmdData}`);
+                    console.log(`[WS] Sending command to MQTT for vehicle ${ws.vehicle_id}...`);
 
-                    // Gửi command qua MQTT với QoS 2
-                    await mqttService.sendCommand(mqttClient, ws.vehicle_id, cmdType, cmdData);
-                    console.log(`[WS] Sent MQTT command: ${cmdType}=${cmdData} to vehicle ${ws.vehicle_id} (QoS 2)`);
+                    try {
+                        // Gửi command qua MQTT với QoS 2
+                        await mqttService.sendCommand(mqttClient, ws.vehicle_id, cmdType, cmdData);
+                        console.log(`[WS] ✅ MQTT command sent: ${cmdType}=${cmdData} to vehicle ${ws.vehicle_id} (QoS 2)`);
+                    } catch (err) {
+                        console.error(`[WS] ❌ Error sending MQTT command:`, err.message);
+                    }
                     return;
                 }
 
@@ -204,5 +210,37 @@ const initWebSocket = (server) => {
 
 };
 
+// --- BROADCAST FUNCTION ---
+// Gửi status/telemetry update tới tất cả clients đang theo dõi vehicle
+const broadcastVehicleState = async (vehicleId, stateType, stateData) => {
+    // Convert vehicleId to number to match ws.vehicle_id type
+    const vehicleIdNum = parseInt(vehicleId);
+    console.log(`[WS] Broadcast called for vehicle ${vehicleId} (converted to ${vehicleIdNum}), type=${stateType}`);
 
-module.exports = initWebSocket;
+    if (!wssInstance) {
+        console.log(`[WS] ERROR: WSS instance not available for broadcast`);
+        return;
+    }
+
+    console.log(`[WS] Total clients connected: ${wssInstance.clients.size}`);
+
+    const message = JSON.stringify({
+        type: stateType, // 'status' hoặc 'telemetry'
+        vehicle_id: vehicleIdNum,
+        data: stateData
+    });
+
+    let broadcastCount = 0;
+    wssInstance.clients.forEach((ws) => {
+        console.log(`[WS] Checking client - vehicle_id=${ws.vehicle_id}, readyState=${ws.readyState}, isOpen=${ws.readyState === WebSocket.OPEN}`);
+        if (ws.readyState === WebSocket.OPEN && ws.vehicle_id === vehicleIdNum) {
+            ws.send(message);
+            broadcastCount++;
+            console.log(`[WS] Sent ${stateType} to client ${ws.email}`);
+        }
+    });
+
+    console.log(`[WS] Broadcast complete: ${stateType} sent to ${broadcastCount} clients for vehicle ${vehicleIdNum}`);
+};
+
+module.exports = { initWebSocket, broadcastVehicleState };
