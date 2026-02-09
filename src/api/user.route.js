@@ -191,7 +191,13 @@ router.post('/setting', authenticate, async (req, res) => {
   try {
     const { phone_num, user_name, gender, region, setting } = req.body;
 
-    if (!phone_num || !user_name || !gender || !region || !setting) {
+    if (
+      phone_num === undefined || phone_num === null ||
+      user_name === undefined || user_name === null ||
+      gender === undefined || gender === null ||
+      region === undefined || region === null ||
+      setting === undefined || setting === null
+    ) {
       return res.status(400).send("Invalid JSON format!");
     }
 
@@ -202,7 +208,7 @@ router.post('/setting', authenticate, async (req, res) => {
       region,
       setting
     });
-    res.status(200).send();
+    res.status(200).send('OK');
   } catch (error) {
     res.status(error.statusCode || 500).send(error.message);
   }

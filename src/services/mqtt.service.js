@@ -261,6 +261,7 @@ const sendCommand = async (mqttClient, vehicleId, type, data) => {
     };
 
     const statusFieldName = COMMAND_TO_STATUS_MAP[type];
+
     if (statusFieldName) {
         // Update the status field with the new value (convert 0/1 to boolean)
         currentStatus[statusFieldName] = data === 1;

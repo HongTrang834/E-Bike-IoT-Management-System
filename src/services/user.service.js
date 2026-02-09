@@ -295,11 +295,12 @@ const getEventHistory = async (token, sinceTimeStr) => {
   }
 
   // 4. Query dữ liệu event từ thời điểm since, limit 20
+  // cập nhật 6/2, sửa thành time<=since để lấy đúng dữ liệu
   const eventQuery = `
     SELECT "time", name, type, value
     FROM event_log
     WHERE vehicle_id = $1
-      AND "time" >= $2
+      AND "time" <= $2
     ORDER BY "time" DESC
     LIMIT 20
   `;

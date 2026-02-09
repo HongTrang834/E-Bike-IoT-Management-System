@@ -7,7 +7,8 @@ global.activeSockets = new Map();
 const initWebSocket = require('./ws/ws.server');
 
 const app = express();
-app.use(express.json());
+// Accept JSON bodies even when clients omit Content-Type.
+app.use(express.json({ type: '*/*' }));
 app.use(cors());
 
 const server = http.createServer(app);
