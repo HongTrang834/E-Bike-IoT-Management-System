@@ -84,11 +84,12 @@ const login = async (user_name, password, ipAddress = '') => {
 
 // xử lí add vehicle 
 const addVehicle = async (token, vehicleData) => {
-  const { vehicle_id, vehicle_name } = vehicleData;
+  const { vehicle_id, vehicel_id, vehicle_name } = vehicleData;
+  const vehicleId = vehicle_id || vehicel_id; // Accept both spellings
 
   const sessionKey = `user:token:${token}`;
   const sessionData = await redisClient.hGetAll(sessionKey);
-  if (!vehicle_id || !vehicle_name) {
+  if (!vehicleId || !vehicle_name) {
     const error = new Error("Invalid JSON format!");
     error.statusCode = 400;
     throw error;
@@ -103,7 +104,7 @@ const addVehicle = async (token, vehicleData) => {
   // 2. Kiểm tra xem xe có tồn tại trong db vehicles không
   const vehicleCheck = await db.query(
     'SELECT vehicle_id FROM vehicles WHERE vehicle_id = $1',
-    [vehicle_id]
+    [vehicleId]
   );
   if (vehicleCheck.rows.length === 0) {
     const error = new Error("Vehicle not found");
@@ -114,7 +115,7 @@ const addVehicle = async (token, vehicleData) => {
   // 3. Kiểm tra xem xe này đã được người khác add chưa
   const ownershipCheck = await db.query(
     'SELECT * FROM user_vehicle_mapping WHERE vehicle_id = $1',
-    [vehicle_id]
+    [vehicleId]
   );
   if (ownershipCheck.rows.length > 0) {
     const error = new Error("Vehicle ID already exists");
@@ -125,15 +126,10 @@ const addVehicle = async (token, vehicleData) => {
   // 4. insert into user_vehicle_mapping
   await db.query(
     'INSERT INTO user_vehicle_mapping (email, vehicle_id, vehicle_name) VALUES ($1, $2, $3)',
-    [email, vehicle_id, vehicle_name]
+    [email, vehicleId, vehicle_name]
   );
 
-  // 5. Tự động set xe này làm xe mặc định (Active)
-  await db.query('UPDATE accounts SET vehicle_id = $1 WHERE email = $2', [vehicle_id, email]);
-
-  // Cập nhật lại vehicle_id trong Redis session
-  await redisClient.hSet(sessionKey, 'vehicle_id', vehicle_id.toString());
-  console.log(`[Add Vehicle] User ${email} added vehicle ${vehicle_id}`);
+  console.log(`[Add Vehicle] User ${email} added vehicle ${vehicleId}`);
   return;
 
 };
@@ -141,14 +137,18 @@ const addVehicle = async (token, vehicleData) => {
 
 // xử lí chọn xe 
 const selectVehicle = async (token, vehicleId) => {
+  console.log(`[Select Vehicle] Request - vehicleId: ${vehicleId}, type: ${typeof vehicleId}`);
+
   // 1. Lấy session từ Redis
   const sessionKey = `user:token:${token}`;
   const sessionData = await redisClient.hGetAll(sessionKey);
 
   if (Object.keys(sessionData).length === 0) {
+    console.log(`[Select Vehicle] ERROR: Invalid token`);
     throw { statusCode: 401, message: "Missing or invalid token" };
   }
   const email = sessionData.email;
+  console.log(`[Select Vehicle] User: ${email}`);
 
   // 2. Kiểm tra xe này có thuộc về user không
   const mappingCheck = await db.query(
@@ -156,7 +156,9 @@ const selectVehicle = async (token, vehicleId) => {
     [email, vehicleId]
   );
 
+  console.log(`[Select Vehicle] Mapping check result: ${mappingCheck.rows.length} rows found`);
   if (mappingCheck.rows.length === 0) {
+    console.log(`[Select Vehicle] ERROR: Vehicle ${vehicleId} not owned by user ${email}`);
     throw { statusCode: 403, message: "Access denied" };
   }
 
@@ -166,6 +168,7 @@ const selectVehicle = async (token, vehicleId) => {
   // 4. Cập nhật vào Redis Session để WS nhận diện ngay
   await redisClient.hSet(sessionKey, 'vehicle_id', vehicleId.toString());
 
+  console.log(`[Select Vehicle] SUCCESS: User ${email} selected vehicle ${vehicleId}`);
   return;
 };
 

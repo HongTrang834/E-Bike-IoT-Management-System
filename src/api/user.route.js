@@ -8,7 +8,7 @@ const authenticate = require('../middleware/auth');
 router.post('/sigup', async (req, res) => {
   try {
     const result = await userService.sigup(req.body);
-    res.status(200).send();
+    res.status(200).send('OK');
   } catch (error) {
     res.status(error.statusCode || 500).send(error.message);
   }
@@ -27,7 +27,7 @@ router.post('/login', async (req, res) => {
       'expires_in': result.expires_in.toString()
     });
 
-    res.status(200).send();
+    res.status(200).send('OK');
   } catch (error) {
     res.status(error.statusCode || 401).send(error.message);
   }
@@ -37,7 +37,7 @@ router.post('/login', async (req, res) => {
 router.post('/add_vehicle', authenticate, async (req, res) => {
   try {
     const result = await userService.addVehicle(req.token, req.body);
-    res.status(200).send();
+    res.status(200).send('OK');
   } catch (error) {
     res.status(error.statusCode || 500).send(error.message);
   }
@@ -46,14 +46,15 @@ router.post('/add_vehicle', authenticate, async (req, res) => {
 // API Chọn XE hiện tại
 router.get('/select', authenticate, async (req, res) => {
   try {
-    const { vehicle_id } = req.query; // Lấy từ ?vehicle_id=1
+    const { vehicle_id, vehicel_id } = req.query; // Accept both spellings
+    const vehicleId = vehicle_id || vehicel_id;
 
-    if (!vehicle_id) {
+    if (!vehicleId) {
       return res.status(400).send("vehicle_id is required");
     }
 
-    await userService.selectVehicle(req.token, vehicle_id);
-    res.status(200).send();
+    await userService.selectVehicle(req.token, vehicleId);
+    res.status(200).send('OK');
   } catch (error) {
     res.status(error.statusCode || 500).send(error.message);
   }
@@ -114,14 +115,15 @@ router.get('/vehi_info', authenticate, async (req, res) => {
 // API Xóa xe khỏi danh sách user
 router.delete('/delete_vehicle', authenticate, async (req, res) => {
   try {
-    const { vehicle_id } = req.query;
+    const { vehicle_id, vehicel_id } = req.query; // Accept both spellings
+    const vehicleId = vehicle_id || vehicel_id;
 
-    if (!vehicle_id) {
+    if (!vehicleId) {
       return res.status(400).send("vehicle_id is required");
     }
 
-    await userService.deleteVehicle(req.token, vehicle_id);
-    res.status(200).send();
+    await userService.deleteVehicle(req.token, vehicleId);
+    res.status(200).send('OK');
   } catch (error) {
     res.status(error.statusCode || 500).send(error.message);
   }
@@ -137,7 +139,7 @@ router.get('/forgot', async (req, res) => {
     }
 
     await userService.forgotPassword(email);
-    res.status(200).send();
+    res.status(200).send('OK');
   } catch (error) {
     // i want to show only error like "Missing or invalid token", not json {"message": "Missing or invalid token"}
     res.status(error.statusCode || 500).send(error.message);
@@ -154,7 +156,7 @@ router.post('/verify', async (req, res) => {
     }
 
     await userService.verifyCode(email, password, verify_code);
-    res.status(200).send();
+    res.status(200).send('OK');
   } catch (error) {
     res.status(error.statusCode || 500).send("Missing or invalid token");
   }
@@ -170,7 +172,7 @@ router.post('/chg_password', authenticate, async (req, res) => {
       return res.status(400).send("Invalid JSON format!");
     }
     await userService.changePassword(req.token, password);
-    res.status(200).send();
+    res.status(200).send('OK');
   } catch (error) {
     res.status(error.statusCode || 500).send("Missing or invalid token");
   }
@@ -180,7 +182,7 @@ router.post('/chg_password', authenticate, async (req, res) => {
 router.get('/logout', authenticate, async (req, res) => {
   try {
     await userService.logout(req.token);
-    res.status(200).send();
+    res.status(200).send('OK');
   } catch (error) {
     res.status(error.statusCode || 401).send(error.message);
   }
