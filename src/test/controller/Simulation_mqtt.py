@@ -216,22 +216,21 @@ def random_location():
         "heading_2": random.randint(0, 360)
     }
 
-# event_name allowed: 0-3, 11-12, 21-26
+# event_name allowed: 0-12, 21-27
 ALLOWED_EVENTS = (
-    list(range(0, 4)) +
-    list(range(11, 13)) +
-    list(range(21, 27))
+    list(range(0, 13)) +
+    list(range(21, 28))
 )
 
 def random_event():
     event_name = random.choice(ALLOWED_EVENTS)
 
-    if 1 <= event_name <= 3:
-        event_type = 2
+    if 1 <= event_name <= 9:
+        event_type = 2  # Error
     elif 11 <= event_name <= 12:
-        event_type = 1
+        event_type = 1  # Warning
     else:
-        event_type = 0
+        event_type = 0  # Info
 
     return {
         "eventname_4": event_name,

@@ -243,4 +243,33 @@ const broadcastVehicleState = async (vehicleId, stateType, stateData) => {
     console.log(`[WS] Broadcast complete: ${stateType} sent to ${broadcastCount} clients for vehicle ${vehicleIdNum}`);
 };
 
-module.exports = { initWebSocket, broadcastVehicleState };
+const broadcastVehicleChanged = async (email, newVehicleId, vehicleName) => {
+    const newVehicleIdNum = newVehicleId ? parseInt(newVehicleId) : 0;
+    console.log(`[WS] Notifying user ${email} about vehicle change to ${newVehicleIdNum}`);
+
+    if (!wssInstance) {
+        console.log(`[WS] ERROR: WSS instance not available for broadcast`);
+        return;
+    }
+
+    const message = JSON.stringify({
+        type: 'vehicle_changed',
+        vehicle_id: newVehicleIdNum,
+        vehicle_name: vehicleName
+    });
+
+    let broadcastCount = 0;
+    wssInstance.clients.forEach((ws) => {
+        if (ws.readyState === WebSocket.OPEN && ws.email === email) {
+            // Update vehicle_id on WebSocket connection
+            ws.vehicle_id = newVehicleIdNum;
+            ws.send(message);
+            broadcastCount++;
+            console.log(`[WS] Sent vehicle_changed to ${email}: vehicle_id=${newVehicleIdNum}, vehicle_name=${vehicleName}`);
+        }
+    });
+
+    console.log(`[WS] Vehicle change notification complete: sent to ${broadcastCount} clients for user ${email}`);
+};
+
+module.exports = { initWebSocket, broadcastVehicleState, broadcastVehicleChanged };

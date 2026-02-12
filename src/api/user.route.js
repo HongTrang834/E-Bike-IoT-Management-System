@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const userService = require('../services/user.service');
 const authenticate = require('../middleware/auth');
+const { broadcastVehicleChanged } = require('../ws/ws.server');
 
 
 // API Đăng ký
@@ -122,7 +123,19 @@ router.delete('/delete_vehicle', authenticate, async (req, res) => {
       return res.status(400).send("vehicle_id is required");
     }
 
-    await userService.deleteVehicle(req.token, vehicleId);
+    const result = await userService.deleteVehicle(req.token, vehicleId);
+
+    // If user was using deleted vehicle, broadcast new vehicle_id to update WebSocket
+    if (result && result.vehicleChanged) {
+      const redisClient = require('../config/redis');
+      const sessionKey = `user:token:${req.token}`;
+      const sessionData = await redisClient.hGetAll(sessionKey);
+      const email = sessionData.email;
+
+      await broadcastVehicleChanged(email, result.nextVehicleId, result.vehicleName);
+      console.log(`[API] Broadcasted vehicle change for ${email}: ${vehicleId} → ${result.nextVehicleId}`);
+    }
+
     res.status(200).send('OK');
   } catch (error) {
     res.status(error.statusCode || 500).send(error.message);

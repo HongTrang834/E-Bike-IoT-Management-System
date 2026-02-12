@@ -298,7 +298,10 @@ const getEventHistory = async (token, sinceTimeStr) => {
   }
 
   // 4. Query dữ liệu event từ thời điểm since, limit 20
-  // cập nhật 6/2, sửa thành time<=since để lấy đúng dữ liệu
+  // App sends UTC time, database stores local time (UTC+7)
+  // Add 7 hours to since to match database timezone
+  const sinceTimeLocal = new Date(sinceTime.getTime() + (7 * 60 * 60 * 1000));
+
   const eventQuery = `
     SELECT "time", name, type, value
     FROM event_log
@@ -308,7 +311,9 @@ const getEventHistory = async (token, sinceTimeStr) => {
     LIMIT 20
   `;
 
-  const eventResult = await db.query(eventQuery, [vehicleId, sinceTime.toISOString()]);
+  console.log(`[Event History] Query for vehicle ${vehicleId}, since UTC: ${sinceTime.toISOString()}, since Local: ${sinceTimeLocal.toISOString()}`);
+  const eventResult = await db.query(eventQuery, [vehicleId, sinceTimeLocal.toISOString()]);
+  console.log(`[Event History] Found ${eventResult.rows.length} events`);
 
   // 5. Decode name và type 
   const nameMapping = {
@@ -316,14 +321,21 @@ const getEventHistory = async (token, sinceTimeStr) => {
     1: 'theft',
     2: 'crash',
     3: 'overtemp',
+    4: 'turn_signal_abnormal',
+    5: 'mrr_malfunction',
+    6: 'inv_malfunction',
+    7: '12v_battery_low',
+    8: 'inv_disconnect',
+    9: 'batt_disconnect',
     11: 'low_soc',
     12: 'dtc',
     21: 'lock_on',
     22: 'lock_off',
-    23: 'horn',
-    24: 'vehicle_packed',
-    25: 'vehicle_stand',
-    26: 'vehicle_reverse'
+    23: 'trunk_lock',
+    24: 'horn',
+    25: 'vehicle_packed',
+    26: 'vehicle_stand',
+    27: 'vehicle_reverse'
   };
 
   const typeMapping = {
@@ -409,22 +421,31 @@ const deleteVehicle = async (token, vehicleId) => {
   }
 
   const currentVehicleId = accountResult.rows[0].vehicle_id;
+  let vehicleChanged = false;
+  let nextVehicleId = null;
+  let vehicleName = null;
 
   if (currentVehicleId && currentVehicleId.toString() === vehicleId.toString()) {
 
     const nextResult = await db.query(
-      'SELECT vehicle_id FROM user_vehicle_mapping WHERE email = $1 ORDER BY vehicle_id ASC LIMIT 1',
+      'SELECT vehicle_id, vehicle_name FROM user_vehicle_mapping WHERE email = $1 ORDER BY vehicle_id ASC LIMIT 1',
       [email]
     );
 
-    const nextVehicleId = nextResult.rows.length > 0 ? nextResult.rows[0].vehicle_id : null;
+    if (nextResult.rows.length > 0) {
+      nextVehicleId = nextResult.rows[0].vehicle_id;
+      vehicleName = nextResult.rows[0].vehicle_name;
+    }
 
     await db.query('UPDATE accounts SET vehicle_id = $1 WHERE email = $2', [nextVehicleId, email]);
 
     await redisClient.hSet(sessionKey, 'vehicle_id', nextVehicleId ? nextVehicleId.toString() : '0');
+
+    vehicleChanged = true;
+    console.log(`[Delete Vehicle] User ${email} deleted active vehicle ${vehicleId}, switched to ${nextVehicleId}`);
   }
 
-  return;
+  return { vehicleChanged, nextVehicleId, vehicleName };
 };
 
 // xử lí quên mật khẩu
