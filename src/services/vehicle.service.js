@@ -15,23 +15,27 @@ const registerVehicle = async (vehicleData) => {
     throw error;
   }
 
-  //  Nếu đủ dữ liệu, thực hiện chèn hoặc cập nhật vào DB
-  const queryText = `
-    INSERT INTO vehicles (vehicle_id, model, color, battery_voltage, battery_capacity, max_range, last_online)
-    VALUES ($1, $2, $3, $4, $5, $6, NOW())
-    ON CONFLICT (vehicle_id) 
-    DO UPDATE SET 
-      model = EXCLUDED.model,
-      color = EXCLUDED.color,
-      battery_voltage = EXCLUDED.battery_voltage,
-      battery_capacity = EXCLUDED.battery_capacity,
-      max_range = EXCLUDED.max_range,
-      last_online = NOW()
-    RETURNING *;
-  `;
+  //  Nếu đủ dữ liệu, chỉ update last_online nếu xe đã tồn tại
+  const existing = await db.query(
+    'SELECT vehicle_id FROM vehicles WHERE vehicle_id = $1',
+    [vehicle_id]
+  );
 
-  const values = [vehicle_id, model, color, battery_voltage, battery_capacity, max_range];
-  const result = await db.query(queryText, values);
+  let result;
+  if (existing.rows.length > 0) {
+    result = await db.query(
+      'UPDATE vehicles SET last_online = NOW() WHERE vehicle_id = $1 RETURNING *',
+      [vehicle_id]
+    );
+  } else {
+    const queryText = `
+      INSERT INTO vehicles (vehicle_id, model, color, battery_voltage, battery_capacity, max_range, last_online)
+      VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      RETURNING *;
+    `;
+    const values = [vehicle_id, model, color, battery_voltage, battery_capacity, max_range];
+    result = await db.query(queryText, values);
+  }
 
 
   // Create stream vehicle data  redis with vehicle_id 
@@ -46,8 +50,6 @@ const registerVehicle = async (vehicleData) => {
 const getVehicleState = async (vehicleId) => {
   const redisKey = `vehicle:stream:${vehicleId}`;
   const data = await redisClient.hGetAll(redisKey);
-
-  // Default state - always start with complete state
   const defaultState = {
     mode: 0,
     locked: 0,
@@ -65,11 +67,9 @@ const getVehicleState = async (vehicleId) => {
     remote_access: 0,
   };
 
-  // Parse status from Redis and merge with defaults
   if (data && data.status) {
     try {
       const status = JSON.parse(data.status);
-      // Convert boolean to int and merge with defaults
       Object.keys(status).forEach(key => {
         let value = status[key];
         if (typeof value === 'boolean') {

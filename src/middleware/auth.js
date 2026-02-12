@@ -11,7 +11,6 @@ const authenticate = async (req, res, next) => {
         return res.status(401).send("Missing or invalid token");
     }
 
-    // Gắn thông tin user vào request để các hàm sau sử dụng
     req.user = sessionData;
     req.token = token;
     next();

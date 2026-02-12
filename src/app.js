@@ -7,26 +7,22 @@ global.activeSockets = new Map();
 const { initWebSocket, broadcastVehicleState } = require('./ws/ws.server');
 
 const app = express();
-// Accept JSON bodies even when clients omit Content-Type.
 app.use(express.json({ type: '*/*' }));
 app.use(cors());
 
 const server = http.createServer(app);
 
-// KHỞI TẠO WEBSOCKET
 initWebSocket(server);
 
-// Routes
 const vehicleRoutes = require('./api/vehicle.route');
 const userRoutes = require('./api/user.route');
 app.use('/api/user', userRoutes);
 app.use('/api/vehicle', vehicleRoutes);
 
-// Setup broadcast function for MQTT service
 const { setBroadcastFunction } = require('./services/mqtt.service');
 setBroadcastFunction(broadcastVehicleState);
 
-// MQTT setup 
+
 const mqttClient = require('./config/mqtt');
 const mqttService = require('./services/mqtt.service');
 mqttClient.on('message', (topic, message) => {

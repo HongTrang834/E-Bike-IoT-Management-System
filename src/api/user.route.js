@@ -47,7 +47,7 @@ router.post('/add_vehicle', authenticate, async (req, res) => {
 // API Chọn XE hiện tại
 router.get('/select', authenticate, async (req, res) => {
   try {
-    const { vehicle_id, vehicel_id } = req.query; // Accept both spellings
+    const { vehicle_id, vehicel_id } = req.query; 
     const vehicleId = vehicle_id || vehicel_id;
 
     if (!vehicleId) {
@@ -125,7 +125,6 @@ router.delete('/delete_vehicle', authenticate, async (req, res) => {
 
     const result = await userService.deleteVehicle(req.token, vehicleId);
 
-    // If user was using deleted vehicle, broadcast new vehicle_id to update WebSocket
     if (result && result.vehicleChanged) {
       const redisClient = require('../config/redis');
       const sessionKey = `user:token:${req.token}`;
@@ -154,7 +153,6 @@ router.get('/forgot', async (req, res) => {
     await userService.forgotPassword(email);
     res.status(200).send('OK');
   } catch (error) {
-    // i want to show only error like "Missing or invalid token", not json {"message": "Missing or invalid token"}
     res.status(error.statusCode || 500).send(error.message);
   }
 });

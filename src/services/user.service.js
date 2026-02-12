@@ -85,7 +85,7 @@ const login = async (user_name, password, ipAddress = '') => {
 // xử lí add vehicle 
 const addVehicle = async (token, vehicleData) => {
   const { vehicle_id, vehicel_id, vehicle_name } = vehicleData;
-  const vehicleId = vehicle_id || vehicel_id; // Accept both spellings
+  const vehicleId = vehicle_id || vehicel_id; 
 
   const sessionKey = `user:token:${token}`;
   const sessionData = await redisClient.hGetAll(sessionKey);
@@ -255,7 +255,6 @@ const getLocationHistory = async (token, startTimeStr, stopTimeStr) => {
     throw { statusCode: 404, message: "Vehicle not found" };
   }
 
-  // 4. Query dữ liệu location trong khoảng thời gian
   const locationQuery = `
     SELECT lat, lon
     FROM location_log
@@ -266,27 +265,22 @@ const getLocationHistory = async (token, startTimeStr, stopTimeStr) => {
 
   const locationResult = await db.query(locationQuery, [vehicleId, startTime.toISOString(), stopTime.toISOString()]);
 
-  // 5. Trả về mảng JSON (có thể rỗng nếu không có dữ liệu)
   return locationResult.rows;
 };
 
 // xử lí lấy lịch sử event
 const getEventHistory = async (token, sinceTimeStr) => {
-  // 1. Kiểm tra token
   const sessionKey = `user:token:${token}`;
   const sessionData = await redisClient.hGetAll(sessionKey);
 
   if (Object.keys(sessionData).length === 0) {
     throw { statusCode: 401, message: "Missing or invalid token" };
   }
-
-  // 2. Chuẩn hóa thời gian
   const sinceTime = new Date(sinceTimeStr);
   if (isNaN(sinceTime.getTime())) {
     throw { statusCode: 400, message: "since must be valid ISO 8601" };
   }
 
-  // 3. Lấy vehicle_id đang chọn từ accounts
   const accountResult = await db.query('SELECT vehicle_id FROM accounts WHERE email = $1', [sessionData.email]);
   if (accountResult.rows.length === 0 || !accountResult.rows[0].vehicle_id) {
     throw { statusCode: 404, message: "Vehicle not found" };
@@ -297,9 +291,6 @@ const getEventHistory = async (token, sinceTimeStr) => {
     throw { statusCode: 404, message: "Vehicle not found" };
   }
 
-  // 4. Query dữ liệu event từ thời điểm since, limit 20
-  // App sends UTC time, database stores local time (UTC+7)
-  // Add 7 hours to since to match database timezone
   const sinceTimeLocal = new Date(sinceTime.getTime() + (7 * 60 * 60 * 1000));
 
   const eventQuery = `

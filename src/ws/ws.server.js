@@ -12,10 +12,8 @@ const initWebSocket = (server) => {
     wss.on('connection', async (ws, req) => {
         console.log(`[WS] New connection - waiting for token verification`);
 
-        // State để track nếu user đã auth chưa
         let isAuthenticated = false;
 
-        // LẮNG NGHE TIN NHẮN TỪ CLIENT
         ws.on('message', async (message) => {
             try {
                 const payload = JSON.parse(message);
@@ -124,7 +122,6 @@ const initWebSocket = (server) => {
                 }
 
                 // XỬ LÝ HEARTBEAT PONG (chỉ sau khi auth)
-                //isAuthenticated &&
                 if (payload.type === 'heartbeat' && payload.data?.value === 'pong') {
                     ws.isAlive = true;
                     ws.missedPings = 0;
@@ -137,7 +134,7 @@ const initWebSocket = (server) => {
                     return;
                 }
 
-                // XỬ LÝ LỆNH ĐIỀU KHIỂN (chỉ sau khi auth)
+                // XỬ LÝ LỆNH ĐIỀU KHIỂN 
                 // Format: {"type": "command", "data": {"type": "lock", "data": 0}}
                 if (isAuthenticated && payload.type === 'command' && payload.data?.type && payload.data?.data !== undefined) {
                     const cmdType = payload.data.type;
@@ -147,20 +144,13 @@ const initWebSocket = (server) => {
                     console.log(`[WS] Sending command to MQTT for vehicle ${ws.vehicle_id}...`);
 
                     try {
-                        // Gửi command qua MQTT với QoS 2
                         await mqttService.sendCommand(mqttClient, ws.vehicle_id, cmdType, cmdData);
-                        console.log(`[WS] ✅ MQTT command sent: ${cmdType}=${cmdData} to vehicle ${ws.vehicle_id} (QoS 2)`);
+                        console.log(`[WS]  MQTT command sent: ${cmdType}=${cmdData} to vehicle ${ws.vehicle_id} (QoS 2)`);
                     } catch (err) {
                         console.error(`[WS] ❌ Error sending MQTT command:`, err.message);
                     }
                     return;
                 }
-
-                // Nếu chưa auth và không phải token message
-                // if (!isAuthenticated) {
-                //     console.log("[WS] Ignoring message: Not authenticated yet");
-                //     return;
-                // }
 
             } catch (e) {
                 console.error("[WS] Message Parse Error:", e.message);
@@ -170,9 +160,7 @@ const initWebSocket = (server) => {
         ws.on('close', async () => {
             if (isAuthenticated && ws.sessionId) {
                 console.log(`[WS] Client ${ws.email} closed connection`);
-                // Xóa khỏi ACTIVE SOCKETS
                 global.activeSockets.delete(ws.sessionId);
-                // Clear session field trên user:token khi đóng kết nối
                 const sessionKey = `user:token:${ws.userToken}`;
                 await redisClient.hSet(sessionKey, 'session', '');
             } else {
@@ -187,7 +175,6 @@ const initWebSocket = (server) => {
             if (ws.readyState === WebSocket.OPEN && ws.userToken) {
                 if (ws.missedPings >= 5) {
                     console.log(`[WS] Terminating ${ws.email} due to pong timeout`);
-                    // Clear session field trên user:token khi timeout
                     const sessionKey = `user:token:${ws.userToken}`;
                     redisClient.hSet(sessionKey, 'session', '');
                     return ws.terminate();
@@ -199,9 +186,8 @@ const initWebSocket = (server) => {
                 console.log(`[WS] Sent Ping to ${ws.email} (Missed: ${ws.missedPings - 1})`);
             }
         });
-    }, 500000);
+    }, 5000);
 
-    // DEBUG: Lắng nghe tất cả tin nhắn thô
     wss.on('message', (message) => {
         console.log('Raw message nhận được:', message.toString());
     });
@@ -210,10 +196,8 @@ const initWebSocket = (server) => {
 
 };
 
-// --- BROADCAST FUNCTION ---
-// Gửi status/telemetry update tới tất cả clients đang theo dõi vehicle
+
 const broadcastVehicleState = async (vehicleId, stateType, stateData) => {
-    // Convert vehicleId to number to match ws.vehicle_id type
     const vehicleIdNum = parseInt(vehicleId);
     console.log(`[WS] Broadcast called for vehicle ${vehicleId} (converted to ${vehicleIdNum}), type=${stateType}`);
 
@@ -268,6 +252,54 @@ const broadcastVehicleChanged = async (email, newVehicleId, vehicleName) => {
             console.log(`[WS] Sent vehicle_changed to ${email}: vehicle_id=${newVehicleIdNum}, vehicle_name=${vehicleName}`);
         }
     });
+
+    if (newVehicleIdNum > 0) {
+        try {
+            const streamKey = `vehicle:stream:${newVehicleIdNum}`;
+            const payload = await redisClient.hGetAll(streamKey);
+
+            const defaultTelemetry = {
+                speed: 0, odo: 0, trip: 0, range_left: 0,
+                voltage: 0, current: 0, soc: 0, temperature: 0,
+                tilt_angle: 0, hill_asstistance: 0
+            };
+
+            const defaultStatus = {
+                mode: 0, locked: 0, trunk_locked: 0, horn: 0,
+                headlight: 0, rear_light: 0, turn_light: 0,
+                push_notify: 0, batt_alerts: 0, security_alerts: 0,
+                auto_lock: 0, bluetooth_unlock: 0, remote_access: 0
+            };
+
+            const telemetryData = payload.telemetry
+                ? JSON.parse(payload.telemetry)
+                : defaultTelemetry;
+
+            const statusData = payload.status
+                ? JSON.parse(payload.status)
+                : defaultStatus;
+
+            wssInstance.clients.forEach((ws) => {
+                if (ws.readyState === WebSocket.OPEN && ws.email === email) {
+                    ws.send(JSON.stringify({
+                        type: 'telemetry',
+                        vehicle_id: newVehicleIdNum,
+                        data: telemetryData
+                    }));
+
+                    ws.send(JSON.stringify({
+                        type: 'status',
+                        vehicle_id: newVehicleIdNum,
+                        data: statusData
+                    }));
+                }
+            });
+
+            console.log(`[WS] Snapshot sent after vehicle change to ${newVehicleIdNum}`);
+        } catch (err) {
+            console.error('[WS] Error sending snapshot after vehicle change:', err.message);
+        }
+    }
 
     console.log(`[WS] Vehicle change notification complete: sent to ${broadcastCount} clients for user ${email}`);
 };

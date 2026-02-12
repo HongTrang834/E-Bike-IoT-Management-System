@@ -38,7 +38,6 @@ router.post('/command', authenticate, async (req, res) => {
 
         console.log(`[API] Command endpoint called: vehicle=${vehicle_id}, type=${type}, data=${data}`);
 
-        // Send command via MQTT
         await mqttService.sendCommand(mqttClient, vehicle_id, type, data);
 
         res.status(200).send('OK');
@@ -47,8 +46,6 @@ router.post('/command', authenticate, async (req, res) => {
         res.status(error.statusCode || 500).send(error.message);
     }
 });
-
-// Test endpoint (no auth required for debugging)
 router.post('/test/command', async (req, res) => {
     try {
         const { vehicle_id, type, data } = req.body;
